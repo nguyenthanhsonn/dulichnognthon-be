@@ -50,3 +50,21 @@ Mỗi bài thêm một media `VIDEO`, API chi tiết trả trong `media[].mediaU
   video private hoặc hạn chế domain, chủ video cần bật quyền xem/nhúng tương ứng.
 - URL lưu là link Vimeo, không phải tệp MP4; frontend cần dùng Vimeo player/iframe,
   giữ hash của video unlisted khi tạo URL nhúng.
+
+## Ảnh đại diện và thư viện ảnh Cloudinary
+
+```bash
+npm run build
+npm run db:seed:images -- --dry-run
+npm run db:seed:images
+```
+
+Danh sách `../seeds/contest-2026.images.ts` khớp thứ tự 1–35 của bài gốc.
+Seed đặt `destinations.thumbnail_url` và thêm media `IMAGE` với thứ tự 0 cho mỗi
+bài. Danh sách/ranking trả `thumbnailUrl`; chi tiết trả thêm `media[]` có ảnh và
+video. Giữ nguyên URL Cloudinary, kể cả encoding tên file, không tải hoặc upload ảnh.
+
+Seed dùng transaction và khóa riêng, yêu cầu đủ 35 slug trước khi ghi. Chạy lại
+không tạo trùng, giữ UUID ảnh do seed quản lý khi đổi link. Không sửa video, ảnh
+khác đã có, nội dung bài thi hoặc phiếu. Thay thumbnail sẽ cập nhật `updated_at`
+qua trigger hiện có. Bài 4–5 và 23–24 dùng chung ảnh đúng danh sách cung cấp.

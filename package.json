@@ -30,6 +30,7 @@
     "db:migration:generate": "node node_modules/typeorm/cli.js migration:generate -d dist/database/data-source.js",
     "db:seed": "node dist/database/seeds/run-seed.js",
     "db:seed:videos": "node dist/database/seeds/run-contest-videos.js",
+    "db:seed:images": "node dist/database/seeds/run-contest-images.js",
     "db:import:contest2026": "node dist/database/imports/run-import-contest-2026.js"
   },
   "dependencies": {

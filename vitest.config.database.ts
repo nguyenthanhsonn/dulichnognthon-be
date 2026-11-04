@@ -9,6 +9,7 @@ export default defineConfig({
       'test/auth-email-migration.integration-spec.ts',
       'test/competition.integration-spec.ts',
       'test/contest-videos.integration-spec.ts',
+      'test/contest-images.integration-spec.ts',
     ],
     testTimeout: 60000,
     hookTimeout: 60000,

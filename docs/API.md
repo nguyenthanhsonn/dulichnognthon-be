@@ -293,7 +293,7 @@ Không cần đăng nhập. Query:
       "slug": "dlnt2026-025-diem-du-lich-vuon-hong-le-phuc",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Đà Lạt",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793800436/vuon-hong-le-phuc-2.jpg",
       "displayOrder": 25
     }
   ],
@@ -320,7 +320,7 @@ Path nhận **slug**, không phải UUID. Ví dụ trên dùng slug của bài 2
 - `mediaType`: `IMAGE` hoặc `VIDEO`; `caption` có thể `null`; chưa có media trả `[]`.
 - 35 bài thi đã được gắn link Vimeo. `mediaUrl` là link Vimeo, **không phải MP4**, nên không gắn trực tiếp vào thẻ `<video src>`.
 - Frontend dùng Vimeo player/iframe. Giữ hash của video unlisted ở bài 1 khi tạo link nhúng; API hiện không trả field `embedUrl` hoặc `provider` riêng.
-- Ảnh đại diện chưa có có thể vẫn `null`; client cần ảnh fallback. Quyền phát/nhúng phụ thuộc cấu hình Vimeo.
+- 35 bài thi đã có ảnh Cloudinary ở `thumbnailUrl` và media `IMAGE`. Kiểu dữ liệu vẫn cho phép `null` với bài khác chưa có ảnh; client giữ ảnh fallback. Quyền phát/nhúng phụ thuộc cấu hình Vimeo.
 
 **Lỗi:** 400 slug không hợp lệ; 404 không tồn tại hoặc không active.
 
@@ -333,10 +333,17 @@ Path nhận **slug**, không phải UUID. Ví dụ trên dùng slug của bài 2
   "slug": "dlnt2026-025-diem-du-lich-vuon-hong-le-phuc",
   "brief": "Nội dung mô tả ngắn của điểm đến.",
   "province": "Đà Lạt",
-  "thumbnailUrl": null,
+  "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793800436/vuon-hong-le-phuc-2.jpg",
   "displayOrder": 25,
   "detail": "**Mã hồ sơ:** DLNT2026-025\n\n## Nội dung hồ sơ\n\nNội dung chi tiết bài dự thi...",
   "media": [
+    {
+      "id": "d1302026-0000-4000-8000-000000000025",
+      "mediaType": "IMAGE",
+      "mediaUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793800436/vuon-hong-le-phuc-2.jpg",
+      "caption": "Ảnh đại diện bài dự thi DLNT2026-025",
+      "displayOrder": 0
+    },
     {
       "id": "d1202026-0000-4000-8000-000000000025",
       "mediaType": "VIDEO",
@@ -427,7 +434,7 @@ Không có body/query. Phiếu sắp theo thời điểm tạo rồi ID.
         "slug": "dlnt2026-025-diem-du-lich-vuon-hong-le-phuc",
         "brief": "Nội dung mô tả ngắn của điểm đến.",
         "province": "Đà Lạt",
-        "thumbnailUrl": null,
+        "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793800436/vuon-hong-le-phuc-2.jpg",
         "displayOrder": 25
       }
     }
@@ -463,7 +470,7 @@ Backend đếm trực tiếp bảng phiếu và sắp xếp mỗi request; khôn
       "slug": "dlnt2026-025-diem-du-lich-vuon-hong-le-phuc",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Đà Lạt",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793800436/vuon-hong-le-phuc-2.jpg",
       "displayOrder": 25,
       "voteCount": 60,
       "rank": 1
@@ -474,7 +481,7 @@ Backend đếm trực tiếp bảng phiếu và sắp xếp mỗi request; khôn
       "slug": "dlnt2026-001-lang-van-hoa-du-lich-cong-dong-thon-ban-khun-xa-bang-lang-tinh-tuyen-quang",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Tuyên Quang",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793791752/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.27.24.png",
       "displayOrder": 1,
       "voteCount": 40,
       "rank": 2
@@ -485,7 +492,7 @@ Backend đếm trực tiếp bảng phiếu và sắp xếp mỗi request; khôn
       "slug": "dlnt2026-007-khu-bao-ton-lang-nha-san-dan-toc-sinh-thai-thai-hai",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Thái Nguyên",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793797670/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.07.38.png",
       "displayOrder": 7,
       "voteCount": 20,
       "rank": 3
@@ -529,7 +536,7 @@ Không cần đăng nhập, không có body, phân trang hoặc bộ lọc. Ví 
       "slug": "dlnt2026-025-diem-du-lich-vuon-hong-le-phuc",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Đà Lạt",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793800436/vuon-hong-le-phuc-2.jpg",
       "displayOrder": 25,
       "voteCount": 60,
       "rank": 1
@@ -540,7 +547,7 @@ Không cần đăng nhập, không có body, phân trang hoặc bộ lọc. Ví 
       "slug": "dlnt2026-001-lang-van-hoa-du-lich-cong-dong-thon-ban-khun-xa-bang-lang-tinh-tuyen-quang",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Tuyên Quang",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793791752/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.27.24.png",
       "displayOrder": 1,
       "voteCount": 40,
       "rank": 2
@@ -551,7 +558,7 @@ Không cần đăng nhập, không có body, phân trang hoặc bộ lọc. Ví 
       "slug": "dlnt2026-007-khu-bao-ton-lang-nha-san-dan-toc-sinh-thai-thai-hai",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Thái Nguyên",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793797670/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.07.38.png",
       "displayOrder": 7,
       "voteCount": 20,
       "rank": 3
@@ -562,7 +569,7 @@ Không cần đăng nhập, không có body, phân trang hoặc bộ lọc. Ví 
       "slug": "dlnt2026-035-hanh-trinh-trai-nghiem-sen-que-bac",
       "brief": "Nội dung mô tả ngắn của điểm đến.",
       "province": "Nghệ An",
-      "thumbnailUrl": null,
+      "thumbnailUrl": "https://res.cloudinary.com/k7d3jqeq/image/upload/v1793802532/lang-sen-que-bac-1_1629338515.webp",
       "displayOrder": 35,
       "voteCount": 0,
       "rank": 4
@@ -635,7 +642,7 @@ Lỗi gửi thư ví dụ:
 ## Phạm vi hiện có và bàn giao triển khai
 
 - 12 API nghiệp vụ + 1 route kiểm tra ứng dụng như danh sách trên. Không có Admin CRUD, upload media, lấy OTP công khai, hủy/sửa phiếu hay endpoint cài OAuth.
-- 35 bài thi đã được seed video Vimeo. Các link trùng trong danh sách cung cấp được giữ nguyên; không giả định một URL chỉ thuộc một bài.
+- 35 bài thi đã được seed video Vimeo, ảnh Cloudinary và ảnh đại diện. Các link trùng trong danh sách cung cấp được giữ nguyên; không giả định một URL chỉ thuộc một bài.
 - Gmail OAuth credential chỉ ở backend. Người dùng website không phải đăng nhập/cấp quyền Gmail để nhận OTP.
 - Chưa có cookie session tự động: token được trả trong JSON; client chọn cơ chế lưu phiên phù hợp với kiến trúc ứng dụng.
 - Source hiện chưa gọi `app.enableCors()`. Trình duyệt gọi frontend/backend khác origin cần cấu hình CORS hoặc qua server/proxy frontend. CORS không thay thế bảo vệ API khỏi spam.
