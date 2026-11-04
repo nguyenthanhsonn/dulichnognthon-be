@@ -9,6 +9,8 @@ import { isEmail } from 'class-validator';
 import nodemailer, { type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js';
 import type { EmailSender, OtpEmailContext } from './email-sender.js';
+import { GmailApiMailer, type GmailApiSettings } from './gmail-api-mailer.js';
+import { createOtpEmail } from './otp-email.template.js';
 
 type MailSettings = { from: string } & (
   | {
@@ -20,21 +22,37 @@ type MailSettings = { from: string } & (
       pass: string;
     }
   | { provider: 'resend'; apiKey: string }
+  | ({ provider: 'gmail_api' } & GmailApiSettings)
 );
 
-/** SMTP cho local/hosting hỗ trợ; HTTPS Resend cho Render Free. Không log OTP/credential. */
+/** Production Render Free dùng Gmail API qua HTTPS. Không log OTP/credential. */
 @Injectable()
 export class OtpEmailService implements EmailSender, OnModuleDestroy {
   private smtp?: Transporter<SMTPTransport.SentMessageInfo>;
+  private gmail?: GmailApiMailer;
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
   private settings(): MailSettings {
-    const provider = this.config.get<string>('EMAIL_PROVIDER') || 'smtp';
+    const provider = this.config.get<string>('EMAIL_PROVIDER') || 'gmail_api';
     const from = this.config.get<string>('MAIL_FROM')?.trim();
     if (!from || !isEmail(from))
       throw new ServiceUnavailableException(
         'Chưa cấu hình địa chỉ gửi email hợp lệ.',
       );
+    if (provider === 'gmail_api') {
+      const clientId = this.config.get<string>('GMAIL_CLIENT_ID')?.trim();
+      const clientSecret = this.config
+        .get<string>('GMAIL_CLIENT_SECRET')
+        ?.trim();
+      const refreshToken = this.config
+        .get<string>('GMAIL_REFRESH_TOKEN')
+        ?.trim();
+      if (!clientId || !clientSecret || !refreshToken)
+        throw new ServiceUnavailableException(
+          'Chưa cấu hình OAuth Gmail API hợp lệ.',
+        );
+      return { provider, from, clientId, clientSecret, refreshToken };
+    }
     if (provider === 'resend') {
       const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
       if (!apiKey)
@@ -83,14 +101,11 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
     context: OtpEmailContext,
   ): Promise<void> {
     const settings = this.settings();
-    const subject = 'Mã xác thực đăng nhập | Du lịch Nông thôn';
-    const minutes = Math.ceil(context.expiresInSeconds / 60);
-    const text = `Mã xác thực đăng nhập Du lịch Nông thôn của bạn là ${otp}. Mã có hiệu lực trong ${minutes} phút. Không chia sẻ mã này. Nếu bạn không yêu cầu đăng nhập, hãy bỏ qua email.`;
-    // OTP được sinh nội bộ gồm 6 chữ số; không đưa dữ liệu nhập từ người dùng vào HTML.
-    if (!/^\d{6}$/.test(otp))
-      throw new ServiceUnavailableException('Không thể tạo email xác thực.');
-    const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#18352b"><h2>Du lịch Nông thôn</h2><p>Mã xác thực đăng nhập của bạn:</p><p style="font-size:32px;font-weight:bold;letter-spacing:8px">${otp}</p><p>Mã có hiệu lực trong ${minutes} phút. Không chia sẻ mã này.</p><p>Nếu bạn không yêu cầu đăng nhập, hãy bỏ qua email.</p></div>`;
     try {
+      const { subject, text, html, attachments } = createOtpEmail(
+        otp,
+        context.expiresInSeconds,
+      );
       if (settings.provider === 'smtp') {
         this.smtp ??= nodemailer.createTransport({
           host: settings.host,
@@ -112,12 +127,23 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
           subject,
           text,
           html,
+          attachments,
         });
         const accepted = info.accepted?.some(
           (recipient) => recipient.toLowerCase() === email.toLowerCase(),
         );
         if (!accepted || info.rejected?.length)
           throw new Error('Recipient not accepted');
+      } else if (settings.provider === 'gmail_api') {
+        this.gmail ??= new GmailApiMailer(settings);
+        await this.gmail.send(
+          settings.from,
+          email,
+          subject,
+          text,
+          html,
+          attachments,
+        );
       } else {
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -132,6 +158,12 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             subject,
             text,
             html,
+            attachments: attachments.map((attachment) => ({
+              filename: attachment.filename,
+              content: attachment.content.toString('base64'),
+              content_type: attachment.contentType,
+              content_id: attachment.cid,
+            })),
           }),
           signal: AbortSignal.timeout(10000),
         });

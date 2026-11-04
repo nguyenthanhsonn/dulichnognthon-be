@@ -6,6 +6,7 @@ services:
     repo: https://github.com/nguyenthanhsonn/dulichnognthon-be
     branch: main
     region: ohio
+    # Gmail API dùng HTTPS, không cần mở cổng SMTP.
     plan: free
     autoDeployTrigger: checksPass
     buildCommand: npm ci --include=dev && npm run build
@@ -28,12 +29,16 @@ services:
         sync: false
       - key: AUTH_OTP_SECRET
         sync: false
-      # Render Free chặn SMTP phổ biến; gửi email bằng HTTPS API.
+      # Production dùng Gmail API qua HTTPS với OAuth của tài khoản gửi.
       - key: EMAIL_PROVIDER
-        value: resend
+        value: gmail_api
       - key: MAIL_FROM
+        value: mediaqtm@gmail.com
+      - key: GMAIL_CLIENT_ID
         sync: false
-      - key: RESEND_API_KEY
+      - key: GMAIL_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_REFRESH_TOKEN
         sync: false
       - key: OTP_SEND_COOLDOWN_SECONDS
         value: '60'

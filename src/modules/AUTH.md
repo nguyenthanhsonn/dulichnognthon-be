@@ -2,46 +2,98 @@
 
 Backend dùng NestJS + TypeORM + PostgreSQL. Controller ở `src/controllers`,
 nghiệp vụ ở `src/services`, DTO và validation ở `src/services/dto/auth`.
-`EmailSender` tách luồng xác thực khỏi dịch vụ gửi thư; hỗ trợ Gmail SMTP và Resend HTTPS.
+`EmailSender` tách luồng xác thực khỏi dịch vụ gửi thư. Cấu hình triển khai chọn Gmail API qua HTTPS.
 Không gửi SMS.
 
-## Chọn dịch vụ gửi email
+## Gmail API cho local và Render Free
 
-**Render Free: dùng Resend HTTPS.** Render Free chặn các cổng SMTP 25/465/587
-([tài liệu Render](https://render.com/docs/free)). Tạo API key Resend, thêm domain
-của bạn và xác thực DNS theo hướng dẫn trong dashboard. `MAIL_FROM` phải thuộc
-[domain đã xác thực](https://resend.com/docs/dashboard/domains/introduction),
-ví dụ `otp@your-domain.vn`; không dùng địa chỉ `@gmail.com` làm người gửi Resend.
-Domain thử nghiệm của nhà cung cấp không dùng để đăng nhập cho mọi người dùng.
+Production dùng **Gmail API qua HTTPS**, tài khoản gửi `mediaqtm@gmail.com`.
+`render.yaml` chọn `EMAIL_PROVIDER=gmail_api`, gói Web Service `free`.
+Không dùng App Password hoặc cổng SMTP; không cần domain gửi riêng.
+Thay đổi repo chưa triển khai hoặc thay đổi gói thực tế trong Render Dashboard.
 
-```dotenv
-EMAIL_PROVIDER=resend
-MAIL_FROM=otp@your-domain.vn
-RESEND_API_KEY=<API key của bạn>
+### 1. Tạo project và bật API
+
+Mở [Google Cloud Console](https://console.cloud.google.com/), đăng nhập tài khoản
+quản lý project và tạo project `Du lich Nong thon`. Trong **APIs & Services →
+Library**, tìm **Gmail API** rồi chọn **Enable**.
+
+Trong **Google Auth Platform**, cấu hình Branding (tên ứng dụng, email hỗ trợ),
+Audience **External**, và thêm `mediaqtm@gmail.com` vào Test users khi còn Testing.
+Trong **Data Access**, chỉ thêm scope gửi thư:
+
+```text
+https://www.googleapis.com/auth/gmail.send
 ```
 
-Thêm ba biến này trong Environment của Web Service Render rồi redeploy.
-`render.yaml` đã khai báo provider và các biến cần điền; service đã tạo trước đó
-cần cập nhật Environment thủ công. Không commit secret.
+Đây là quyền của tài khoản gửi, không phải quyền cần yêu cầu từng người bình chọn.
+Không cần quyền đọc, sửa hoặc xóa email. Người dùng website vẫn chỉ nhập email và OTP.
 
-**Local hoặc hosting cho phép SMTP: Gmail SMTP.** Bật xác minh 2 bước cho Gmail,
-tạo [App Password](https://support.google.com/accounts/answer/185833), rồi điền:
+### 2. Tạo OAuth client
 
-```dotenv
-EMAIL_PROVIDER=smtp
-MAIL_FROM=your-account@gmail.com
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=your-account@gmail.com
-SMTP_PASS=<App Password, không phải mật khẩu Gmail>
+Trong **Google Auth Platform → Clients → Create client**, chọn **Web application**,
+đặt tên `Backend OTP`. Thêm Authorized redirect URI chính xác:
+
+```text
+https://developers.google.com/oauthplayground
 ```
 
-`MAIL_FROM` dùng cùng địa chỉ Gmail hoặc alias được Gmail cho phép.
-Cổng 465 dùng TLS ngay khi kết nối; cổng 587 dùng `SMTP_SECURE=false` và bắt buộc
-STARTTLS. Không tắt kiểm tra chứng chỉ TLS. Thiếu cấu hình trả 503 trước khi tạo
-challenge; lỗi nhà cung cấp trả 503 và vô hiệu challenge, không báo gửi thành công giả.
-Khởi động ứng dụng không gửi email kiểm tra. Test luôn giả lập dịch vụ gửi thư.
+Lưu Client ID và Client Secret vào `.env` local, không đưa vào code frontend.
+
+### 3. Cấp quyền tài khoản gửi và lấy Refresh Token
+
+Mở [OAuth Playground](https://developers.google.com/oauthplayground/):
+
+1. Nhấn bánh răng, bật **Use your own OAuth credentials**, điền Client ID/Secret
+   của bước 2. Giữ OAuth endpoints là Google, Access type **Offline**, Force prompt
+   **Consent Screen**.
+2. Nhập scope `https://www.googleapis.com/auth/gmail.send`, nhấn **Authorize APIs**.
+3. Đăng nhập và cấp quyền bằng đúng tài khoản `mediaqtm@gmail.com`.
+4. Chọn **Exchange authorization code for tokens**, copy **Refresh token** vào
+   `GMAIL_REFRESH_TOKEN`. Không dùng Access token ngắn hạn cho biến này.
+
+Dùng OAuth client của chính bạn để tránh token mặc định Playground bị thu hồi
+sau 24 giờ. [Hướng dẫn Playground](https://developers.google.com/oauthplayground/).
+
+**Trước khi vận hành lâu dài:** chuyển Audience từ Testing sang **In production**
+rồi cấp quyền lại để lấy Refresh Token mới. Google cấp token hết hạn sau **7 ngày**
+cho ứng dụng External còn Testing có scope Gmail.
+[Quy tắc token Google](https://developers.google.com/identity/protocols/oauth2#expiration).
+Publishing không tự hoàn tất OAuth verification; nếu Google yêu cầu xác minh quyền
+nhạy cảm, làm theo yêu cầu trong Console. Token vẫn có thể bị thu hồi khi chủ tài khoản
+rút quyền, đổi mật khẩu hoặc theo chính sách Google; khi đó phải cấp quyền lại.
+
+### 4. Điền cấu hình và triển khai
+
+```dotenv
+EMAIL_PROVIDER=gmail_api
+MAIL_FROM=mediaqtm@gmail.com
+GMAIL_CLIENT_ID=<Client ID>
+GMAIL_CLIENT_SECRET=<Client Secret>
+GMAIL_REFRESH_TOKEN=<Refresh Token của mediaqtm@gmail.com>
+```
+
+Điền trong `.env` để chạy local và trong **Render → Web Service → Environment**
+cho production. `MAIL_FROM` dùng đúng tài khoản đã cấp quyền, không dùng email người nhận.
+Service đã tồn tại cần cập nhật các biến thủ công; `sync: false` không tự đọc `.env` local.
+Giữ/chọn gói **Free** rồi redeploy; khởi động lại backend local sau khi thay `.env`.
+Các biến `SMTP_*` và `RESEND_API_KEY` không được dùng khi provider là `gmail_api`.
+
+Thiếu một trong ba biến OAuth trả 503 trước khi tạo challenge; không tự chuyển sang
+SMTP hoặc Resend. OAuth client tự cache/refresh Access Token. Không tự retry gửi
+thư khi Gmail lỗi/timeout để tránh gửi trùng. Lỗi gửi vô hiệu challenge và trả lỗi
+chung, không lộ OTP, token hoặc phản hồi Google. Không gửi thư khi khởi động.
+
+### 5. Kiểm tra thực tế
+
+Gọi `POST /auth/otp/send` với `{"email":"email-nhan@example.com"}`, kiểm tra Inbox/Spam
+rồi gọi `/auth/otp/verify` với email và mã nhận được. Chỉ gọi bước này với địa chỉ
+người nhận được phép thử. HTTP 202 nghĩa là Gmail đã nhận lệnh, không bảo đảm thư
+đã xuất hiện trong Inbox. Chưa có OAuth thì chưa kiểm tra gửi thư thật được.
+
+Gmail API dùng tiêu chuẩn không tính thêm phí, vẫn chịu quota và giới hạn gửi của
+Gmail; không dùng làm dịch vụ gửi số lượng lớn không giới hạn.
+[Xem quota API](https://developers.google.com/workspace/gmail/api/reference/quota).
 
 ## Cấu hình xác thực và migration
 
@@ -123,4 +175,4 @@ request đồng thời, token rotation/logout, gửi thư lỗi và thiếu cấ
 Database test dùng schema tạm riêng, bao gồm nâng cấp từ schema phone có dữ liệu
 để kiểm tra bảo toàn user, OTP, session và phiếu bình chọn. Không ghi dữ liệu test
 vào bảng public, không gửi email thật. Việc gửi và nhận thư thực tế cần credential
-SMTP hoặc Resend cùng domain đã xác thực.
+OAuth Gmail API và một lần thử gửi nhận thực tế.
