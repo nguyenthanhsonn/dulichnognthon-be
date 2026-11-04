@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { DataSource } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 import { createDatabaseOptions } from '../src/database/database.config.js';
 import {
   Destination,
@@ -9,6 +9,10 @@ import {
 } from '../src/database/entities/voting.entities.js';
 import { contestEntries } from '../src/database/imports/contest-2026.entries.js';
 import { seedContestVideos } from '../src/database/seeds/contest-videos.seed.js';
+import {
+  contestVideoLinks,
+  normalizeVimeoUrl,
+} from '../src/database/seeds/contest-2026.videos.js';
 
 const schema = `test_video_${randomUUID().replaceAll('-', '')}`;
 const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
@@ -128,5 +132,37 @@ it('rejects missing destinations without changing any media', async () => {
     ).toEqual(before);
   } finally {
     await repo.update({ slug: 'temporarily-renamed' }, { slug: entry.slug });
+  }
+});
+
+it('replaces the six corrected video links without changing media IDs or metadata', async () => {
+  await seedContestVideos(database);
+  const orders = [16, 17, 18, 19, 20, 29];
+  const ids = orders.map(
+    (order) => `d1202026-0000-4000-8000-${String(order).padStart(12, '0')}`,
+  );
+  const repo = database.getRepository(DestinationMedia);
+  const before = await repo.find({ order: { id: 'ASC' } });
+  await repo.update(
+    { id: In(ids.slice(0, 5)) },
+    { mediaUrl: 'https://vimeo.com/1243134240' },
+  );
+  await repo.update(ids[5], { mediaUrl: 'https://vimeo.com/1243136295' });
+  expect(await seedContestVideos(database, true)).toMatchObject({
+    inserted: 0,
+    updated: 6,
+    skipped: 29,
+  });
+  expect(await seedContestVideos(database)).toMatchObject({
+    inserted: 0,
+    updated: 6,
+    skipped: 29,
+  });
+  const after = await repo.find({ order: { id: 'ASC' } });
+  expect(after).toEqual(before);
+  for (const order of orders) {
+    expect(
+      after.find((media) => media.id === ids[orders.indexOf(order)])?.mediaUrl,
+    ).toBe(normalizeVimeoUrl(contestVideoLinks[order - 1]));
   }
 });

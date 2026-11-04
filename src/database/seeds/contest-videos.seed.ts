@@ -109,7 +109,9 @@ export async function seedContestVideos(database: DataSource, dryRun = false) {
       updated,
       skipped,
       repeatedLinks,
-      managementLinkConverted: [7],
+      managementLinkConverted: contestVideoLinks.flatMap((link, index) =>
+        new URL(link).pathname.startsWith('/manage/videos/') ? [index + 1] : [],
+      ),
     };
   });
 }

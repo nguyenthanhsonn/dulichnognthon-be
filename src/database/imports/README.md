@@ -43,9 +43,9 @@ Mỗi bài thêm một media `VIDEO`, API chi tiết trả trong `media[].mediaU
 - Chạy lại không thêm trùng; không sửa nội dung bài thi, ảnh, phiếu bình chọn hoặc
   media nhập bằng cách khác. Chỉ cập nhật URL của video do chính seed quản lý.
 - Bỏ tham số tracking `fl`, `fe`, `share`. Giữ hash đường dẫn ở bài 1 để truy cập
-  video unlisted. Link quản lý bài 7 chuyển thành `https://vimeo.com/1242903360`.
-- Theo danh sách người dùng cung cấp: bài 15–20 và 22 cùng video `1243134240`;
-  bài 28–29 cùng video `1243136295`. Giữ nguyên, không tự suy đoán link thay thế.
+  video unlisted. Bài 7 hiện dùng link xem `https://vimeo.com/1242903360`.
+- Theo danh sách đã sửa: bài 15 và 22 vẫn cùng video `1243134240`. Các bài
+  16–20 và 29 đã có link riêng; cập nhật giữ nguyên UUID media và không sinh bản ghi trùng.
 - Seed không tải video và không xác nhận được quyền xem/nhúng của Vimeo. Nếu
   video private hoặc hạn chế domain, chủ video cần bật quyền xem/nhúng tương ứng.
 - URL lưu là link Vimeo, không phải tệp MP4; frontend cần dùng Vimeo player/iframe,

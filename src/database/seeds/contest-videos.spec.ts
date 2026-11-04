@@ -15,10 +15,11 @@ it('maps all 35 source numbers and preserves the supplied duplicate videos', () 
   const matching = contestVideoLinks.flatMap((link, i) =>
     normalizeVimeoUrl(link) === 'https://vimeo.com/1243134240' ? [i + 1] : [],
   );
-  expect(matching).toEqual([15, 16, 17, 18, 19, 20, 22]);
-  expect(normalizeVimeoUrl(contestVideoLinks[27])).toBe(
-    normalizeVimeoUrl(contestVideoLinks[28]),
+  expect(matching).toEqual([15, 22]);
+  expect(normalizeVimeoUrl(contestVideoLinks[28])).toBe(
+    'https://vimeo.com/1243134025',
   );
+  expect(new Set(contestVideoLinks.map(normalizeVimeoUrl)).size).toBe(34);
 });
 
 it.each([
