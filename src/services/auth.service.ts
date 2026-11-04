@@ -26,7 +26,8 @@ import {
   type AccessClaims,
 } from '../modules/auth.model.js';
 import { AUTH_SETTINGS, type AuthSettings } from './auth.config.js';
-import { SMS_SENDER, type SmsSender } from './sms/sms-sender.js';
+import { EMAIL_SENDER, type EmailSender } from './email/email-sender.js';
+import { normalizeEmail } from './dto/auth/email.js';
 import type {
   SendOtpResponseDto,
   TokenResponseDto,
@@ -46,13 +47,13 @@ export class AuthService {
     @Inject(DataSource) private readonly database: DataSource,
     @Inject(JwtService) private readonly jwt: JwtService,
     @Inject(AUTH_SETTINGS) private readonly settings: AuthSettings,
-    @Inject(SMS_SENDER) private readonly sms: SmsSender,
+    @Inject(EMAIL_SENDER) private readonly mail: EmailSender,
   ) {}
 
-  private async phoneLock(tx: EntityManager, phone: string): Promise<void> {
-    // Khóa theo phone hoạt động cả khi chưa có user và trên nhiều instance backend.
+  private async emailLock(tx: EntityManager, email: string): Promise<void> {
+    // Khóa theo email hoạt động cả khi chưa có user và trên nhiều instance backend.
     await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
-      `auth:phone:${phone}`,
+      `auth:email:${email}`,
     ]);
   }
 
@@ -63,10 +64,10 @@ export class AuthService {
     return clock.now;
   }
 
-  private otpHash(id: string, phone: string, code: string): string {
+  private otpHash(id: string, email: string, code: string): string {
     // HMAC với secret riêng ngăn vét cạn 6 chữ số chỉ từ bản sao database.
     return createHmac('sha256', this.settings.otpSecret)
-      .update(`otp:${id}:${phone}:${code}`)
+      .update(`otp:${id}:${email}:${code}`)
       .digest('hex');
   }
 
@@ -81,21 +82,22 @@ export class AuthService {
     return a.length === 32 && b.length === 32 && timingSafeEqual(a, b);
   }
 
-  async sendOtp(phone: string): Promise<SendOtpResponseDto> {
-    // Bản deploy hiện tại tạm ngưng SMS, trả 503 trước khi ghi OTP vào database.
-    this.sms.assertAvailable?.();
+  async sendOtp(email: string): Promise<SendOtpResponseDto> {
+    email = normalizeEmail(email) as string;
+    // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
+    this.mail.assertAvailable();
     const otp = randomInt(0, 1000000).toString().padStart(6, '0');
     const challenge = await this.database.transaction(
       'READ COMMITTED',
       async (tx) => {
-        await this.phoneLock(tx, phone);
+        await this.emailLock(tx, email);
         const now = await this.now(tx);
         const latest = await tx.findOne(OtpCode, {
-          where: { phone },
+          where: { email },
           order: { createdAt: 'DESC', id: 'DESC' },
         });
         const recentCount = await tx.countBy(OtpCode, {
-          phone,
+          email,
           createdAt: MoreThanOrEqual(new Date(now.getTime() - 3600000)),
         });
         if (
@@ -109,11 +111,11 @@ export class AuthService {
             429,
           );
         }
-        const user = await tx.findOneBy(User, { phone });
-        // Mã mới thay thế mọi mã trước đó; không tạo tài khoản ở bước gửi SMS.
+        const user = await tx.findOneBy(User, { email });
+        // Mã mới thay thế mọi mã trước đó; không tạo tài khoản ở bước gửi email.
         await tx.update(
           OtpCode,
-          { phone, consumedAt: IsNull() },
+          { email, consumedAt: IsNull() },
           { consumedAt: now },
         );
         const id = randomUUID();
@@ -121,9 +123,9 @@ export class AuthService {
           OtpCode,
           tx.create(OtpCode, {
             id,
-            phone,
+            email,
             userId: user?.id ?? null,
-            codeHash: this.otpHash(id, phone, otp),
+            codeHash: this.otpHash(id, email, otp),
             createdAt: now,
             expiresAt: new Date(
               now.getTime() + this.settings.otpTtlSeconds * 1000,
@@ -133,8 +135,11 @@ export class AuthService {
       },
     );
     try {
-      // Gọi SMS provider ngoài transaction để không giữ khóa khi chờ mạng.
-      await this.sms.sendOtp(phone, otp);
+      // Gọi email provider ngoài transaction để không giữ khóa khi chờ mạng.
+      await this.mail.sendOtp(email, otp, {
+        challengeId: challenge.id,
+        expiresInSeconds: this.settings.otpTtlSeconds,
+      });
     } catch (error) {
       await this.database
         .getRepository(OtpCode)
@@ -152,13 +157,14 @@ export class AuthService {
     };
   }
 
-  async verifyOtp(phone: string, otp: string): Promise<TokenResponseDto> {
+  async verifyOtp(email: string, otp: string): Promise<TokenResponseDto> {
+    email = normalizeEmail(email) as string;
     const result = await this.database.transaction(
       'READ COMMITTED',
       async (tx) => {
-        await this.phoneLock(tx, phone);
+        await this.emailLock(tx, email);
         const challenge = await tx.findOne(OtpCode, {
-          where: { phone },
+          where: { email },
           order: { createdAt: 'DESC', id: 'DESC' },
           lock: { mode: 'pessimistic_write' },
         });
@@ -173,7 +179,7 @@ export class AuthService {
         if (
           !this.matches(
             challenge.codeHash,
-            this.otpHash(challenge.id, phone, otp),
+            this.otpHash(challenge.id, email, otp),
           )
         ) {
           const attempts = challenge.attemptCount + 1;
@@ -185,11 +191,11 @@ export class AuthService {
           return null;
         }
         let user = await tx.findOne(User, {
-          where: { phone },
+          where: { email },
           lock: { mode: 'pessimistic_write' },
         });
         if (user?.isBlocked) return null;
-        user ??= await tx.save(User, tx.create(User, { phone }));
+        user ??= await tx.save(User, tx.create(User, { email }));
         await tx.update(OtpCode, challenge.id, {
           userId: user.id,
           consumedAt: now,
@@ -280,7 +286,7 @@ export class AuthService {
   private userResponse(user: User): UserResponseDto {
     return {
       id: user.id,
-      phone: user.phone,
+      email: user.email,
       createdAt: user.createdAt.toISOString(),
     };
   }

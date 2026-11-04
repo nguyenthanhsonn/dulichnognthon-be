@@ -36,15 +36,35 @@ abstract class UpdatedEntity extends CreatedEntity {
   updatedAt: Date;
 }
 
-/** Một tài khoản cho mỗi số điện thoại chuẩn hóa; không có vai trò admin. */
+/** Tài khoản theo email đã xác thực; phone chỉ giữ để bảo toàn dữ liệu cũ. */
 @Entity({
   name: 'users',
-  comment: 'Người bình chọn; một tài khoản cho mỗi số điện thoại chuẩn hóa.',
+  comment:
+    'Người bình chọn; đăng nhập bằng email OTP, giữ dữ liệu phone cũ khi chuyển đổi.',
 })
 @Index('users_phone_key', ['phone'], { unique: true })
+@Index('users_email_key', ['email'], { unique: true })
+@Check(
+  'users_email_normalized_check',
+  `email IS NULL OR (email = lower(btrim(email)) AND email <> '')`,
+)
+@Check('users_identity_check', 'email IS NOT NULL OR phone IS NOT NULL')
 export class User extends UpdatedEntity {
-  @Column({ type: 'varchar', length: 20 })
-  phone: string;
+  @Column({
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+    comment: 'Số điện thoại từ dữ liệu cũ, không còn dùng để đăng nhập OTP.',
+  })
+  phone: string | null;
+  @Column({
+    type: 'varchar',
+    length: 254,
+    nullable: true,
+    comment:
+      'Email đăng nhập đã chuẩn hóa lowercase/trim; chỉ gắn sau khi xác thực OTP.',
+  })
+  email: string | null;
 
   @Column({ name: 'is_blocked', type: 'boolean', default: false })
   isBlocked: boolean;
@@ -67,17 +87,31 @@ export class User extends UpdatedEntity {
 @Index('otp_codes_user_id_created_at_idx', ['userId', 'createdAt'])
 @Index('otp_codes_expires_at_idx', ['expiresAt'])
 @Index('otp_codes_phone_created_at_idx', ['phone', 'createdAt'])
+@Index('otp_codes_email_created_at_idx', ['email', 'createdAt'])
 @Check('otp_attempt_count_check', '"attempt_count" >= 0')
+@Check(
+  'otp_codes_email_normalized_check',
+  `email IS NULL OR (email = lower(btrim(email)) AND email <> '')`,
+)
+@Check('otp_codes_identity_check', 'email IS NOT NULL OR phone IS NOT NULL')
 export class OtpCode extends CreatedEntity {
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string | null;
   @Column({
     type: 'varchar',
     length: 20,
+    nullable: true,
     comment:
       'Số điện thoại chuẩn hóa của challenge; user chỉ được tạo sau khi OTP đúng.',
   })
-  phone: string;
+  phone: string | null;
+  @Column({
+    type: 'varchar',
+    length: 254,
+    nullable: true,
+    comment: 'Email nhận OTP; challenge tồn tại trước khi tạo tài khoản.',
+  })
+  email: string | null;
   @Column({
     name: 'code_hash',
     type: 'varchar',

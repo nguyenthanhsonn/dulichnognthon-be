@@ -23,10 +23,10 @@ import {
 import { VotesRepository } from '../src/database/votes.repository.js';
 import { seedDestinations } from '../src/database/seeds/destinations.seed.js';
 import { AUTH_SETTINGS, getAuthSettings } from '../src/services/auth.config.js';
-import { SMS_SENDER } from '../src/services/sms/sms-sender.js';
+import { EMAIL_SENDER } from '../src/services/email/email-sender.js';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
 
-// Dùng schema riêng và token/session test; không gọi login hoặc gửi SMS.
+// Dùng schema riêng và token/session test; không gọi login hoặc gửi email.
 const schema = `test_comp_${randomUUID().replaceAll('-', '')}`;
 const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
 let database: DataSource;
@@ -42,9 +42,10 @@ const authSettings = getAuthSettings(
     AUTH_OTP_SECRET: 'competition-test-only-otp-secret-at-least-32-chars',
   }),
 );
-const sms = {
+const mail = {
+  assertAvailable: () => {},
   sendOtp: vi.fn(async () => {
-    throw new Error('Competition APIs must not send SMS');
+    throw new Error('Competition APIs must not send email');
   }),
 };
 
@@ -68,8 +69,8 @@ async function createApp(schedule: Record<string, string> = open) {
     .useModule(TestDatabaseModule)
     .overrideProvider(AUTH_SETTINGS)
     .useValue(authSettings)
-    .overrideProvider(SMS_SENDER)
-    .useValue(sms)
+    .overrideProvider(EMAIL_SENDER)
+    .useValue(mail)
     .compile();
   const application = module.createNestApplication();
   await application.init();
@@ -119,7 +120,7 @@ const destination = (values: Partial<Destination> = {}) =>
 const user = () =>
   database
     .getRepository(User)
-    .save({ phone: randomUUID().replaceAll('-', '').slice(0, 20) });
+    .save({ email: `voter-${randomUUID()}@example.com` });
 async function authenticatedUser() {
   const account = await user();
   const session = await database.getRepository(AuthSession).save({
@@ -430,7 +431,7 @@ it('keeps a hidden destination in user history without refunding the vote', asyn
   expect(mine.body.items[0].destination.id).toBe(target.id);
 });
 
-it('seeds sample destinations idempotently without overwriting existing content or sending SMS', async () => {
+it('seeds sample destinations idempotently without overwriting existing content or sending email', async () => {
   expect(await seedDestinations(database)).toEqual({ insertedDestinations: 3 });
   await database
     .getRepository(Destination)
@@ -443,5 +444,5 @@ it('seeds sample destinations idempotently without overwriting existing content 
         .findOneByOrFail({ slug: 'demo-lang-xanh' })
     ).title,
   ).toBe('Edited by operator');
-  expect(sms.sendOtp).not.toHaveBeenCalled();
+  expect(mail.sendOtp).not.toHaveBeenCalled();
 });

@@ -2,6 +2,7 @@ import type { DataSourceOptions } from 'typeorm';
 import { votingEntities } from './entities/voting.entities.js';
 import { InitVoting1793715300000 } from './migrations/1793715300000-init-voting.js';
 import { AuthOtpPhone1793718000000 } from './migrations/1793718000000-auth-otp-phone.js';
+import { AuthEmail1793757600000 } from './migrations/1793757600000-auth-email.js';
 
 export function getDatabaseUrl(connectionString: string | undefined): string {
   const url = connectionString?.trim();
@@ -47,7 +48,11 @@ export function createDatabaseOptions(
     url,
     schema,
     entities: votingEntities,
-    migrations: [InitVoting1793715300000, AuthOtpPhone1793718000000],
+    migrations: [
+      InitVoting1793715300000,
+      AuthOtpPhone1793718000000,
+      AuthEmail1793757600000,
+    ],
     migrationsTableName: 'typeorm_migrations',
     migrationsTransactionMode: 'all',
     synchronize: false,

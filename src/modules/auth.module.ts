@@ -6,8 +6,8 @@ import { DatabaseModule } from '../database/database.module.js';
 import { AuthController } from '../controllers/auth.controller.js';
 import { AuthService } from '../services/auth.service.js';
 import { AUTH_SETTINGS, getAuthSettings } from '../services/auth.config.js';
-import { SMS_SENDER } from '../services/sms/sms-sender.js';
-import { DisabledSmsService } from '../services/sms/disabled-sms.service.js';
+import { EMAIL_SENDER } from '../services/email/email-sender.js';
+import { OtpEmailService } from '../services/email/otp-email.service.js';
 import { AccessTokenGuard } from '../guards/access-token.guard.js';
 
 @Module({
@@ -25,7 +25,7 @@ import { AccessTokenGuard } from '../guards/access-token.guard.js';
       inject: [ConfigService],
       useFactory: getAuthSettings,
     },
-    { provide: SMS_SENDER, useClass: DisabledSmsService },
+    { provide: EMAIL_SENDER, useClass: OtpEmailService },
   ],
   exports: [AuthService, AccessTokenGuard],
 })

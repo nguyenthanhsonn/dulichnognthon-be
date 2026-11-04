@@ -1,4 +1,6 @@
-import { Body, Controller,
+import {
+  Body,
+  Controller,
   Get,
   Header,
   HttpCode,
@@ -28,7 +30,7 @@ export class AuthController {
   @Header('Cache-Control', 'no-store')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   sendOtp(@Body(authDto(SendOtpRequestDto)) body: SendOtpRequestDto) {
-    return this.auth.sendOtp(body.phone);
+    return this.auth.sendOtp(body.email);
   }
 
   @Post('otp/verify')
@@ -36,7 +38,7 @@ export class AuthController {
   @Header('Cache-Control', 'no-store')
   @Throttle({ default: { limit: 15, ttl: 60000 } })
   verifyOtp(@Body(authDto(VerifyOtpRequestDto)) body: VerifyOtpRequestDto) {
-    return this.auth.verifyOtp(body.phone, body.otp);
+    return this.auth.verifyOtp(body.email, body.otp);
   }
 
   @Post('refresh')

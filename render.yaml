@@ -28,6 +28,13 @@ services:
         sync: false
       - key: AUTH_OTP_SECRET
         sync: false
+      # Render Free chặn SMTP phổ biến; gửi email bằng HTTPS API.
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: MAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
       - key: OTP_SEND_COOLDOWN_SECONDS
         value: '60'
       - key: OTP_MAX_SENDS_PER_HOUR

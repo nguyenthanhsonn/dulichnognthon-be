@@ -7,7 +7,7 @@ trực tiếp trong DBeaver.
 
 | Entity           | Bảng              | Mục đích                                          |
 | ---------------- | ----------------- | ------------------------------------------------- |
-| User             | users             | Số điện thoại duy nhất và trạng thái bị chặn      |
+| User             | users             | Email duy nhất và trạng thái bị chặn              |
 | OtpCode          | otp_codes         | Hash OTP, thời hạn, số lần thử, thời điểm sử dụng |
 | AuthSession      | auth_sessions     | Hash refresh token và thu hồi phiên               |
 | Destination      | destinations      | Nội dung điểm đến, slug, trạng thái hiển thị      |

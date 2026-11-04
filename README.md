@@ -15,7 +15,7 @@ và cấu trúc chia theo module nghiệp vụ.
 | Ranking        | Tổng hợp kết quả và hiển thị bảng xếp hạng điểm đến                         |
 | Authentication | Quản lý tài khoản, token và phiên đăng nhập                                 |
 
-Phần gửi SMS OTP đang được tạm ngưng và sẽ tích hợp ở giai đoạn tiếp theo.
+Người dùng đăng nhập bằng email và mã xác thực OTP gửi tới hộp thư.
 
 ## Công nghệ
 

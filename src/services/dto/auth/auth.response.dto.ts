@@ -1,6 +1,6 @@
 export class UserResponseDto {
   id: string;
-  phone: string;
+  email: string | null;
   createdAt: string;
 }
 

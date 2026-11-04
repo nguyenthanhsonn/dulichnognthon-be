@@ -1,6 +1,6 @@
 # Destination → Voting → Ranking
 
-Ba module dùng NestJS + **TypeORM** + PostgreSQL hiện có. Không thay auth/SMS,
+Ba module dùng NestJS + **TypeORM** + PostgreSQL hiện có. Dùng lại xác thực email OTP,
 không có admin/CRUD công khai hoặc WebSocket. Schema đã đủ bảng, khóa ngoại,
 index và UNIQUE `(user_id, destination_id)` nên không cần migration mới.
 
@@ -34,7 +34,7 @@ backend sau khi thay lịch. Hai đầu mốc start/end được tính trong kho
 
 Giới hạn mặc định 3, có thể cấu hình giảm nhưng không vượt 3. Các API đọc vẫn hoạt
 động trước/sau hội thi. Login và secret JWT/session tiếp tục dùng cấu hình auth
-hiện tại; xem [AUTH.md](AUTH.md). Không cần gửi SMS để chạy test ba module.
+hiện tại; xem [AUTH.md](AUTH.md). Không cần gửi email thật để chạy test ba module.
 
 ## Destination
 
@@ -223,7 +223,7 @@ npm run test:db
 ```
 
 Database suite chạy trên schema UUID riêng, dùng guard/JWT/session thật với user
-test, không gửi SMS và không ghi bảng public. Bao gồm phân trang/tìm kiếm/media,
+test, không gửi email thật và không ghi bảng public. Bao gồm phân trang/tìm kiếm/media,
 ba phiếu đầu, phiếu thứ tư, trùng phiếu, request đồng thời, trước/sau/missing lịch,
 điểm đến inactive, ranking 0 phiếu/tổng/tie-break, auth và seed idempotent.
 Schema test được dọn sau mỗi suite. CI/CD hiện tại được giữ nguyên.

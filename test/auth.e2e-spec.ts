@@ -24,30 +24,30 @@ describe('Auth request validation and IP throttling', () => {
     await app.close();
   });
 
-  it('normalizes Vietnamese phone numbers before calling the service', async () => {
+  it('normalizes email addresses before calling the service', async () => {
     await request(app.getHttpServer())
       .post('/auth/otp/send')
-      .send({ phone: '090 123 4567' })
+      .send({ email: '  Voter@Example.COM  ' })
       .expect(202);
-    expect(auth.sendOtp).toHaveBeenCalledWith('+84901234567');
+    expect(auth.sendOtp).toHaveBeenCalledWith('voter@example.com');
   });
 
-  it('rejects invalid phones, unexpected fields and non-string OTPs', async () => {
+  it('rejects invalid emails, unexpected fields and non-string OTPs', async () => {
     await request(app.getHttpServer())
       .post('/auth/otp/send')
-      .send({ phone: '123' })
+      .send({ email: 'not-an-email' })
       .expect(400);
     await request(app.getHttpServer())
       .post('/auth/otp/send')
-      .send({ phone: '+84901234567', isAdmin: true })
+      .send({ email: 'voter@example.com', isAdmin: true })
       .expect(400);
     await request(app.getHttpServer())
       .post('/auth/otp/verify')
-      .send({ phone: '+84901234567', otp: 123456 })
+      .send({ email: 'voter@example.com', otp: 123456 })
       .expect(400);
     await request(app.getHttpServer())
       .post('/auth/otp/verify')
-      .send({ phone: '+84901234567', otp: '12345' })
+      .send({ email: 'voter@example.com', otp: '12345' })
       .expect(400);
     await request(app.getHttpServer())
       .post('/auth/refresh')
@@ -56,16 +56,16 @@ describe('Auth request validation and IP throttling', () => {
     expect(auth.sendOtp).not.toHaveBeenCalled();
   });
 
-  it('limits send requests by IP even for different phone numbers', async () => {
+  it('limits send requests by IP even for different email addresses', async () => {
     for (let i = 0; i < 5; i++) {
       await request(app.getHttpServer())
         .post('/auth/otp/send')
-        .send({ phone: `+8490123456${i}` })
+        .send({ email: `voter${i}@example.com` })
         .expect(202);
     }
     await request(app.getHttpServer())
       .post('/auth/otp/send')
-      .send({ phone: '+84901234569' })
+      .send({ email: 'another@example.com' })
       .expect(429);
     expect(auth.sendOtp).toHaveBeenCalledTimes(5);
   });

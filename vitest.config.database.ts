@@ -6,6 +6,7 @@ export default defineConfig({
     include: [
       'test/database.integration-spec.ts',
       'test/auth.integration-spec.ts',
+      'test/auth-email-migration.integration-spec.ts',
       'test/competition.integration-spec.ts',
     ],
     testTimeout: 60000,

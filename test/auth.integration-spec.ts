@@ -19,7 +19,7 @@ import { createDatabaseOptions } from '../src/database/database.config.js';
 import { User, OtpCode, AuthSession } from '../src/modules/auth.model.js';
 import { AUTH_SETTINGS, getAuthSettings } from '../src/services/auth.config.js';
 import { ConfigService } from '@nestjs/config';
-import { SMS_SENDER } from '../src/services/sms/sms-sender.js';
+import { EMAIL_SENDER } from '../src/services/email/email-sender.js';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
 
 const schema = `test_auth_${randomUUID().replaceAll('-', '')}`;
@@ -37,16 +37,13 @@ const settings = {
   otpCooldownSeconds: 60,
 };
 const delivered = new Map<string, string>();
-const sms = {
-  sendOtp: vi.fn(async (phone: string, code: string) => {
-    delivered.set(phone, code);
+const mail = {
+  assertAvailable: () => {},
+  sendOtp: vi.fn(async (email: string, code: string) => {
+    delivered.set(email, code);
   }),
 };
-const phone = () =>
-  `+849${randomUUID()
-    .replaceAll(/[^0-9]/g, '')
-    .padEnd(8, '0')
-    .slice(0, 8)}`;
+const email = () => `voter-${randomUUID()}@example.com`;
 
 @Global()
 @Module({
@@ -72,9 +69,9 @@ beforeAll(async () => {
     .useModule(TestDatabaseModule)
     .overrideProvider(AUTH_SETTINGS)
     .useValue(settings)
-    .overrideProvider(SMS_SENDER)
-    .useValue(sms)
-    // Kiểm tra IP throttling riêng; suite này kiểm tra khóa/limit phone trong DB.
+    .overrideProvider(EMAIL_SENDER)
+    .useValue(mail)
+    // Kiểm tra IP throttling riêng; suite này kiểm tra khóa/limit email trong DB.
     .overrideGuard(ThrottlerGuard)
     .useValue({ canActivate: () => true })
     .compile();
@@ -89,10 +86,10 @@ afterAll(async () => {
   await client.end();
 });
 
-async function send(number = phone()) {
+async function send(number = email()) {
   const response = await request(app.getHttpServer())
     .post('/auth/otp/send')
-    .send({ phone: number })
+    .send({ email: number })
     .expect(202);
   return { number, code: delivered.get(number)!, response };
 }
@@ -101,10 +98,38 @@ async function login() {
   const challenge = await send();
   const response = await request(app.getHttpServer())
     .post('/auth/otp/verify')
-    .send({ phone: challenge.number, otp: challenge.code })
+    .send({ email: challenge.number, otp: challenge.code })
     .expect(200);
   return { ...challenge, tokens: response.body };
 }
+
+it('normalizes email consistently for cooldown, verification and existing accounts', async () => {
+  const address = email();
+  await request(app.getHttpServer())
+    .post('/auth/otp/send')
+    .send({ email: `  ${address.toUpperCase()}  ` })
+    .expect(202);
+  await request(app.getHttpServer())
+    .post('/auth/otp/send')
+    .send({ email: address })
+    .expect(429);
+  const first = await request(app.getHttpServer())
+    .post('/auth/otp/verify')
+    .send({ email: address.toUpperCase(), otp: delivered.get(address) })
+    .expect(200);
+  await database
+    .getRepository(OtpCode)
+    .update({ email: address }, { createdAt: new Date(Date.now() - 61000) });
+  await send(address);
+  const second = await request(app.getHttpServer())
+    .post('/auth/otp/verify')
+    .send({ email: address, otp: delivered.get(address) })
+    .expect(200);
+  expect(second.body.user.id).toBe(first.body.user.id);
+  expect(await database.getRepository(User).countBy({ email: address })).toBe(
+    1,
+  );
+});
 
 it('sends a six-digit OTP, stores only its hash and creates no user until verification', async () => {
   const { number, code, response } = await send();
@@ -112,10 +137,10 @@ it('sends a six-digit OTP, stores only its hash and creates no user until verifi
   expect(response.body).toMatchObject({ expiresIn: 300, retryAfter: 60 });
   expect(response.body).not.toHaveProperty('otp');
   expect(response.headers['cache-control']).toBe('no-store');
-  expect(await database.getRepository(User).countBy({ phone: number })).toBe(0);
+  expect(await database.getRepository(User).countBy({ email: number })).toBe(0);
   const challenge = await database
     .getRepository(OtpCode)
-    .findOneByOrFail({ phone: number });
+    .findOneByOrFail({ email: number });
   expect(challenge.userId).toBeNull();
   expect(challenge.codeHash).toMatch(/^[0-9a-f]{64}$/);
   expect(challenge.codeHash).not.toBe(code);
@@ -129,7 +154,7 @@ it('logs in, returns safe user information and supports /auth/me', async () => {
   expect(tokens).toMatchObject({
     tokenType: 'Bearer',
     expiresIn: 900,
-    user: { phone: number },
+    user: { email: number },
   });
   expect(tokens.user).not.toHaveProperty('isBlocked');
   const session = await database
@@ -155,29 +180,29 @@ it('commits wrong attempts and locks an OTP after exactly three failures', async
   for (let attempt = 0; attempt < 3; attempt++) {
     await request(app.getHttpServer())
       .post('/auth/otp/verify')
-      .send({ phone: number, otp: wrong })
+      .send({ email: number, otp: wrong })
       .expect(401);
   }
   await request(app.getHttpServer())
     .post('/auth/otp/verify')
-    .send({ phone: number, otp: code })
+    .send({ email: number, otp: code })
     .expect(401);
   const challenge = await database
     .getRepository(OtpCode)
-    .findOneByOrFail({ phone: number });
+    .findOneByOrFail({ email: number });
   expect(challenge.attemptCount).toBe(3);
   expect(challenge.consumedAt).not.toBeNull();
-  expect(await database.getRepository(User).countBy({ phone: number })).toBe(0);
+  expect(await database.getRepository(User).countBy({ email: number })).toBe(0);
 });
 
 it('rejects expired OTPs', async () => {
   const { number, code } = await send();
   await database
     .getRepository(OtpCode)
-    .update({ phone: number }, { expiresAt: new Date(0) });
+    .update({ email: number }, { expiresAt: new Date(0) });
   await request(app.getHttpServer())
     .post('/auth/otp/verify')
-    .send({ phone: number, otp: code })
+    .send({ email: number, otp: code })
     .expect(401);
 });
 
@@ -187,52 +212,52 @@ it('allows a code to be consumed only once under concurrent verification', async
     [1, 2].map(() =>
       request(app.getHttpServer())
         .post('/auth/otp/verify')
-        .send({ phone: number, otp: code }),
+        .send({ email: number, otp: code }),
     ),
   );
   expect(
     responses.map((result) => result.status).sort((a, b) => a - b),
   ).toEqual([200, 401]);
-  expect(await database.getRepository(User).countBy({ phone: number })).toBe(1);
+  expect(await database.getRepository(User).countBy({ email: number })).toBe(1);
 });
 
-it('serializes simultaneous sends and enforces the phone cooldown', async () => {
-  const number = phone();
+it('serializes simultaneous sends and enforces the email cooldown', async () => {
+  const number = email();
   const results = await Promise.all(
     [1, 2].map(() =>
       request(app.getHttpServer())
         .post('/auth/otp/send')
-        .send({ phone: number }),
+        .send({ email: number }),
     ),
   );
   expect(results.map((result) => result.status).sort((a, b) => a - b)).toEqual([
     202, 429,
   ]);
-  expect(await database.getRepository(OtpCode).countBy({ phone: number })).toBe(
+  expect(await database.getRepository(OtpCode).countBy({ email: number })).toBe(
     1,
   );
 });
 
-it('enforces the hourly phone limit and invalidates replaced codes', async () => {
+it('enforces the hourly email limit and invalidates replaced codes', async () => {
   const { number } = await send();
   const first = await database
     .getRepository(OtpCode)
-    .findOneByOrFail({ phone: number });
+    .findOneByOrFail({ email: number });
   for (let i = 1; i < 5; i++) {
     await database
       .getRepository(OtpCode)
-      .update({ phone: number }, { createdAt: new Date(Date.now() - 61000) });
+      .update({ email: number }, { createdAt: new Date(Date.now() - 61000) });
     await request(app.getHttpServer())
       .post('/auth/otp/send')
-      .send({ phone: number })
+      .send({ email: number })
       .expect(202);
   }
   await database
     .getRepository(OtpCode)
-    .update({ phone: number }, { createdAt: new Date(Date.now() - 61000) });
+    .update({ email: number }, { createdAt: new Date(Date.now() - 61000) });
   await request(app.getHttpServer())
     .post('/auth/otp/send')
-    .send({ phone: number })
+    .send({ email: number })
     .expect(429);
   expect(
     (await database.getRepository(OtpCode).findOneByOrFail({ id: first.id }))
@@ -321,17 +346,17 @@ it('rejects access and refresh for a blocked user', async () => {
     .expect(401);
 });
 
-it('consumes a challenge if the SMS provider fails', async () => {
-  const number = phone();
-  sms.sendOtp.mockRejectedValueOnce(
-    new ServiceUnavailableException('SMS unavailable'),
+it('consumes a challenge if the email provider fails', async () => {
+  const number = email();
+  mail.sendOtp.mockRejectedValueOnce(
+    new ServiceUnavailableException('email unavailable'),
   );
   await request(app.getHttpServer())
     .post('/auth/otp/send')
-    .send({ phone: number })
+    .send({ email: number })
     .expect(503);
   expect(
-    (await database.getRepository(OtpCode).findOneByOrFail({ phone: number }))
+    (await database.getRepository(OtpCode).findOneByOrFail({ email: number }))
       .consumedAt,
   ).not.toBeNull();
 });

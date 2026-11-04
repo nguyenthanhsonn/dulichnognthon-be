@@ -51,7 +51,7 @@ afterAll(async () => {
 
 async function fixtures(count = 1, blocked = false, active = true) {
   const user = await dataSource.getRepository(User).save({
-    phone: randomUUID().replaceAll('-', '').slice(0, 20),
+    email: `voter-${randomUUID()}@example.com`,
     isBlocked: blocked,
   });
   const destinations = await Promise.all(
@@ -189,7 +189,7 @@ it('stores OTP/session hashes and enforces foreign keys and nonnegative attempts
   const expiresAt = new Date(Date.now() + 300000);
   const otp = await dataSource.getRepository(OtpCode).save({
     userId: user.id,
-    phone: user.phone,
+    email: user.email,
     codeHash: 'test-hash',
     expiresAt,
   });
