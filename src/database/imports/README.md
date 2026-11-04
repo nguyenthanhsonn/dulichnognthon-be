@@ -25,3 +25,28 @@ npm run db:import:contest2026
 - Import dùng một transaction, xác minh toàn bộ nội dung trước commit, không sửa
   ảnh/video, UUID hoặc phiếu bình chọn của bản ghi đã tồn tại. Chạy lại sẽ bỏ qua
   bản ghi trùng khớp; xung đột nội dung hoặc tên trùng slug khác sẽ báo lỗi để đối chiếu.
+
+## Bổ sung video Vimeo cho 35 bài thi
+
+```bash
+npm run build
+npm run db:seed:videos -- --dry-run
+npm run db:seed:videos
+```
+
+Chạy import nội dung 35 bài trước khi seed video. Danh sách link nằm trong
+`../seeds/contest-2026.videos.ts`, thứ tự 1–35 theo tài liệu gốc. Seed tìm điểm đến
+bằng slug đã import, không dựa vào thứ tự query hay `display_order` hiện tại.
+Mỗi bài thêm một media `VIDEO`, API chi tiết trả trong `media[].mediaUrl`.
+
+- Toàn bộ thao tác nằm trong transaction có advisory lock; thiếu bài sẽ rollback.
+- Chạy lại không thêm trùng; không sửa nội dung bài thi, ảnh, phiếu bình chọn hoặc
+  media nhập bằng cách khác. Chỉ cập nhật URL của video do chính seed quản lý.
+- Bỏ tham số tracking `fl`, `fe`, `share`. Giữ hash đường dẫn ở bài 1 để truy cập
+  video unlisted. Link quản lý bài 7 chuyển thành `https://vimeo.com/1242903360`.
+- Theo danh sách người dùng cung cấp: bài 15–20 và 22 cùng video `1243134240`;
+  bài 28–29 cùng video `1243136295`. Giữ nguyên, không tự suy đoán link thay thế.
+- Seed không tải video và không xác nhận được quyền xem/nhúng của Vimeo. Nếu
+  video private hoặc hạn chế domain, chủ video cần bật quyền xem/nhúng tương ứng.
+- URL lưu là link Vimeo, không phải tệp MP4; frontend cần dùng Vimeo player/iframe,
+  giữ hash của video unlisted khi tạo URL nhúng.
