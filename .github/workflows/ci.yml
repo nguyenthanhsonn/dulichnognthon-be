@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, test, build and production smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/dulich_ci
+      AUTH_JWT_SECRET: ci-only-jwt-secret-at-least-32-characters
+      AUTH_OTP_SECRET: ci-only-otp-secret-at-least-32-characters
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: dulich_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d dulich_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --include=dev
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: HTTP e2e tests
+        run: npm run test:e2e
+      - name: Build
+        run: npm run build
+      - name: Apply migrations to CI database
+        run: npm run db:migrate
+      - name: Database constraints and concurrent voting tests
+        run: npm run test:db
+      - name: Verify production startup and PostgreSQL connection
+        env:
+          NODE_ENV: production
+          PORT: 3100
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/dulich_ci
+        shell: bash
+        run: |
+          node dist/main.js > "$RUNNER_TEMP/dulich-be.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if body=$(curl --fail --silent http://127.0.0.1:3100/); then
+              test "$body" = 'Hello World!'
+              exit $?
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/dulich-be.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/dulich-be.log"
+          echo 'Production server did not become healthy within 30 seconds.'
+          exit 1

@@ -1,0 +1,14 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    globals: true,
+    include: [
+      'test/database.integration-spec.ts',
+      'test/auth.integration-spec.ts',
+      'test/competition.integration-spec.ts',
+    ],
+    testTimeout: 60000,
+    hookTimeout: 60000,
+  },
+});
