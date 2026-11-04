@@ -2,7 +2,8 @@
 
 Ba module dùng NestJS + **TypeORM** + PostgreSQL hiện có. Dùng lại xác thực email OTP,
 không có admin/CRUD công khai hoặc WebSocket. Schema đã đủ bảng, khóa ngoại,
-index và UNIQUE `(user_id, destination_id)` nên không cần migration mới.
+index và UNIQUE `(user_id, destination_id)`. Migration UnlimitedVoting chỉ cập nhật
+comment quy tắc trong database, không xóa hoặc sửa phiếu.
 
 ## Chuẩn bị và cấu hình
 
@@ -21,7 +22,6 @@ chính thức trước khi công bố. Chạy lại seed không tạo bản ghi 
 user, phiếu bình chọn hoặc token; không tạo cách đăng nhập bỏ qua xác thực.
 
 ```dotenv
-MAX_VOTES_PER_USER=3
 VOTING_START_AT=
 VOTING_END_AT=
 ```
@@ -32,7 +32,8 @@ tự suy đoán giờ mở/đóng. Để trống cả hai biến thì vote bị 
 thiếu một mốc hoặc timestamp không hợp lệ sẽ làm startup báo lỗi. Khởi động lại
 backend sau khi thay lịch. Hai đầu mốc start/end được tính trong khoảng cho phép.
 
-Giới hạn mặc định 3, có thể cấu hình giảm nhưng không vượt 3. Các API đọc vẫn hoạt
+Không giới hạn tổng số điểm đến mỗi tài khoản được bình chọn; mỗi điểm đến chỉ
+được vote một lần/tài khoản trong toàn hội thi. Các API đọc vẫn hoạt
 động trước/sau hội thi. Login và secret JWT/session tiếp tục dùng cấu hình auth
 hiện tại; xem [AUTH.md](AUTH.md). Không cần gửi email thật để chạy test ba module.
 
@@ -101,7 +102,9 @@ hoặc điểm đến inactive đều trả 404. Không có endpoint thêm/sửa
 Yêu cầu `Authorization: Bearer <accessToken>` của hệ thống đăng nhập hiện tại.
 
 ```json
-{ "destinationId": "<destination UUID>" }
+{
+  "destinationId": "<destination UUID>"
+}
 ```
 
 Không nhận `userId` từ client; guard xác thực token/session và gắn user vào request.
@@ -117,16 +120,16 @@ UUID/field ngoài DTO không hợp lệ trả 400. Thành công trả 201:
 
 Timestamp ví dụ chỉ minh họa định dạng, không xác định giờ hội thi chính thức.
 
-| Trường hợp                             | HTTP |
-| -------------------------------------- | ---- |
-| Thiếu/sai/hết hạn token hoặc session   | 401  |
-| Điểm đến không tồn tại                 | 404  |
-| Điểm đến inactive                      | 400  |
-| Chưa mở/đã đóng/chưa cấu hình lịch     | 403  |
-| Đã bình chọn điểm đến hoặc đã hết lượt | 409  |
+| Trường hợp                           | HTTP |
+| ------------------------------------ | ---- |
+| Thiếu/sai/hết hạn token hoặc session | 401  |
+| Điểm đến không tồn tại               | 404  |
+| Điểm đến inactive                    | 400  |
+| Chưa mở/đã đóng/chưa cấu hình lịch   | 403  |
+| Đã bình chọn điểm đến                | 409  |
 
 Repository hiện có dùng transaction READ COMMITTED, khóa user bằng FOR UPDATE
-trước khi đếm, giữ khóa đến khi INSERT và COMMIT. Destination dùng FOR SHARE để
+để chống vote trùng đồng thời, giữ khóa đến khi INSERT và COMMIT. Destination dùng FOR SHARE để
 trạng thái active không đổi giữa kiểm tra và ghi. Đồng hồ DB được đọc sau khi
 nhận khóa; `created_at` của vote dùng chính thời điểm đã kiểm tra, thay vì timestamp
 bắt đầu transaction trước lúc chờ khóa. UNIQUE bảo vệ vote trùng và trigger chặn
@@ -136,7 +139,8 @@ service trả lỗi HTTP. Không có endpoint hủy hay thay đổi bình chọn
 ### `GET /votes/me`
 
 Cũng yêu cầu Bearer token; chỉ lấy phiếu của user trong token, không nhận ID user
-qua query/body. Điểm đến bị ẩn sau khi bình chọn vẫn có trong lịch sử và vẫn dùng lượt.
+qua query/body. Điểm đến bị ẩn vẫn có trong lịch sử. `usedVotes` là số điểm đã
+bình chọn; `remainingVotes` và `maxVotes` là null vì không có hạn mức tổng.
 
 ```json
 {
@@ -157,8 +161,8 @@ qua query/body. Điểm đến bị ẩn sau khi bình chọn vẫn có trong l�
     }
   ],
   "usedVotes": 1,
-  "remainingVotes": 2,
-  "maxVotes": 3
+  "remainingVotes": null,
+  "maxVotes": null
 }
 ```
 

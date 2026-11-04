@@ -54,15 +54,15 @@ trợ rollback tự động vì thao tác đó sẽ xóa toàn bộ dữ liệu 
 ## Bình chọn và các ràng buộc
 
 Luôn gọi `VotesRepository.castVote(userId, destinationId, context)` để ghi vote.
-Transaction READ COMMITTED khóa dòng user (`pessimistic_write`/FOR UPDATE) trước
-khi đếm, nên nhiều request đồng thời không vượt 3 lượt. Điểm đến dùng khóa chia
+Không có hạn mức tổng theo tài khoản. Transaction READ COMMITTED khóa dòng user
+(`pessimistic_write`/FOR UPDATE) để chống gửi trùng đồng thời. Điểm đến dùng khóa chia
 sẻ (`pessimistic_read`/FOR SHARE). Đồng hồ DB được đọc sau khi đã nhận khóa.
 
 Repository kiểm tra user bị chặn, trạng thái điểm đến, thời gian hội thi và trùng
 vote. Kết quả là `{ accepted: true, vote }` hoặc `{ accepted: false, reason }`.
 Audit từ chối được commit; vote và audit thành công được lưu cùng transaction.
-Lệnh INSERT trực tiếp vào database sẽ bỏ qua giới hạn theo user và thời gian ở
-repository. `userId` phải lấy từ phiên đăng nhập đã xác thực, UUID cần được validate
+Lệnh INSERT trực tiếp bỏ qua xác thực, kiểm tra trạng thái và thời gian ở
+repository, nhưng vẫn chịu UNIQUE cho mỗi user/điểm đến. `userId` phải lấy từ phiên đăng nhập đã xác thực, UUID cần được validate
 ở lớp API, và context chỉ nhận hash do backend tính.
 
 Database chặn trùng `(user_id, destination_id)` và UPDATE/DELETE vote bằng trigger.
@@ -73,8 +73,8 @@ Trigger cập nhật `updated_at` kể cả khi sửa dữ liệu bằng SQL tr�
 ## Cấu hình hội thi và kiểm thử
 
 `VOTING_START_AT`/`VOTING_END_AT` để trống nghĩa là bình chọn đóng. Điền lịch chính
-thức bằng ISO 8601 kèm timezone. `MAX_VOTES_PER_USER` mặc định 3, cho phép giảm
-nhưng không vượt 3. `OTP_EXPIRES_SECONDS=300`, `OTP_MAX_ATTEMPTS=3` là cấu hình cho
+thức bằng ISO 8601 kèm timezone. Đã bỏ biến hạn mức tổng `MAX_VOTES_PER_USER`.
+`OTP_EXPIRES_SECONDS=300`, `OTP_MAX_ATTEMPTS=3` là cấu hình cho
 lớp xác thực OTP đã triển khai; xem [hướng dẫn Auth](../modules/AUTH.md) để biết API, rotation và rate limiting.
 
 `npm run test:db` chạy migration TypeORM trong schema `test_<uuid>`, kiểm tra entity,

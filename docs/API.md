@@ -30,7 +30,7 @@ Tài liệu mô tả hành vi đã có trong code, không khẳng định phiên
 | GET    | `/destinations`       | Không                    | 200        | Danh sách, phân trang, tìm kiếm |
 | GET    | `/destinations/:slug` | Không                    | 200        | Chi tiết và ảnh/video           |
 | POST   | `/votes`              | Bearer                   | 201        | Bình chọn                       |
-| GET    | `/votes/me`           | Bearer                   | 200        | Phiếu đã bỏ và lượt còn lại     |
+| GET    | `/votes/me`           | Bearer                   | 200        | Danh sách điểm đã bình chọn     |
 | GET    | `/rankings/top`       | Không                    | 200        | Top 3 hiện tại                  |
 | GET    | `/rankings`           | Không                    | 200        | Toàn bộ bảng xếp hạng           |
 
@@ -71,15 +71,16 @@ Content-Type: application/json
 
 **Quy tắc hiện tại:**
 
-- `send` tối đa 1 lần/email/giờ; `resend` tối đa 3 lần/email/giờ; tổng không vượt 4 lần trong cửa sổ trượt 1 giờ. Gọi lại `send` trong giờ bị 429 kể cả đã qua cooldown, mã cũ hết hạn hoặc đã xác thực.
-- Chờ ít nhất 60 giây giữa các lần gửi. Gửi lại phải dùng `/auth/otp/resend`; không dùng lại `/auth/otp/send`.
-- OTP ngẫu nhiên 6 chữ số, mặc định hiệu lực 300 giây, chỉ dùng một lần và chỉ lưu HMAC/hash.
-- Không trả OTP hoặc số lần resend còn lại trong response. `retryAfter` chỉ là thời gian chờ gửi lại, không bảo đảm còn quota giờ.
+- `send` tạo một **phiên xác thực OTP** mới: 1 lần gửi đầu, tối đa 3 lần gửi lại trong cùng phiên. Phiên OTP kéo dài tối đa 30 phút và không gia hạn khi resend. Phiên này khác session đăng nhập 30 ngày.
+- Khi còn phiên OTP chưa xác thực, gọi lại `send` trả **409**; frontend chuyển sang màn hình nhập mã và dùng `/auth/otp/resend`. Phiên hết hạn mới được gửi đầu lại. Sau verify thành công, lần đăng nhập mới được gửi đầu ngay, không chờ một giờ/cooldown của phiên đã hoàn tất; vẫn chịu hạn mức chống spam.
+- OTP ngẫu nhiên 6 chữ số, hiệu lực tối đa 300 giây và không vượt hạn cuối phiên OTP, chỉ dùng một lần và chỉ lưu HMAC/hash.
+- Không trả OTP. Trả thêm `remainingResends` (3 sau SEND) và `flowExpiresIn` (1800 giây khi tạo phiên). `retryAfter` là thời gian chờ resend, không bảo đảm còn quota chống spam.
 - Mã mới vô hiệu mã cũ. Gửi lỗi sau khi challenge đã được tạo vẫn tính quota và challenge đó bị vô hiệu.
+- Hạn mức chống spam độc lập: mặc định **10 lần gửi/email trong cửa sổ trượt một giờ**, tính cả SEND và RESEND của mọi phiên, kể cả phiên đã xác thực. Hoàn tất/đóng phiên không xóa hạn mức này.
 - Chưa tạo tài khoản ở bước gửi. HTTP 202 nghĩa là Gmail nhận lệnh gửi, không bảo đảm thư đã vào Inbox.
 - Giới hạn IP dùng chung send + resend: tổng 5 request/phút. Client dùng `expiresIn`, `retryAfter` từ response thay vì hardcode.
 
-**Lỗi:** 400 email/body không hợp lệ; 429 vượt cooldown/hạn mức email hoặc IP; 503 chưa cấu hình/gửi thư thất bại.
+**Lỗi:** 400 email/body không hợp lệ; **409** đang có phiên OTP chưa kết thúc; 429 vượt hạn mức chống spam hoặc cooldown của phiên chưa xác thực vừa hết hạn; 503 chưa cấu hình/gửi thư thất bại.
 
 **Response 202 Accepted**
 
@@ -87,7 +88,9 @@ Content-Type: application/json
 {
   "message": "OTP đã được gửi.",
   "expiresIn": 300,
-  "retryAfter": 60
+  "retryAfter": 60,
+  "remainingResends": 3,
+  "flowExpiresIn": 1800
 }
 ```
 
@@ -108,12 +111,12 @@ Content-Type: application/json
 
 Email dùng cùng validation và chuẩn hóa với `/auth/otp/send`. Không cần đăng nhập.
 
-- Cần có lần gửi đầu `SEND` cho email này trong một giờ gần nhất; nếu chưa có hoặc lần gửi đầu đã ra ngoài cửa sổ một giờ, trả 400 và yêu cầu gọi `/auth/otp/send` trước.
-- Tối đa **3 lần RESEND/email/giờ**, tách biệt với 1 lần SEND; tổng vẫn không vượt 4 theo cấu hình. Không dùng lại `send` để né giới hạn.
+- Cần phiên OTP đang chờ xác thực cho email này, chưa hết hạn và chưa verify thành công. Nếu không có phiên, phiên đã verify hoặc quá 30 phút, trả **400**, yêu cầu gọi `/auth/otp/send` để bắt đầu phiên mới.
+- Tối đa **3 lần RESEND/phiên OTP**, ngoài 1 lần SEND đầu. Dùng hết 3 lần thì bị 429; gọi `send` không reset được phiên đang chờ. Sau verify thành công, lần đăng nhập mới có lại 3 lượt resend; hạn mức chống spam 10/email/giờ vẫn tính tổng mọi phiên.
 - Cách lần gửi trước (send hoặc resend) ít nhất **60 giây**.
 - Sinh OTP ngẫu nhiên mới, vô hiệu mã cũ. Mã mới có tối đa 3 lần nhập sai, kể cả mã trước đã hết hạn hoặc bị khóa do nhập sai.
 - Gửi lỗi sau khi đã tạo challenge vẫn tính một lần resend; challenge đó bị vô hiệu.
-- Không nhận `requestType`, `userId` hoặc số lượt do client truyền. Loại yêu cầu do endpoint quyết định và được lưu vào database.
+- Không nhận `requestType`, `flowId`, `userId` hoặc số lượt do client truyền. Backend quản lý phiên đang chờ theo email và khóa bằng database; không cần đổi request hiện tại.
 - Send và resend dùng chung giới hạn IP 5 request/phút.
 
 **Response 202 Accepted**
@@ -122,11 +125,13 @@ Email dùng cùng validation và chuẩn hóa với `/auth/otp/send`. Không c�
 {
   "message": "OTP đã được gửi.",
   "expiresIn": 300,
-  "retryAfter": 60
+  "retryAfter": 60,
+  "remainingResends": 2,
+  "flowExpiresIn": 1740
 }
 ```
 
-**Lỗi:** 400 email/body sai hoặc chưa có SEND trong một giờ gần nhất; 429 quá sớm, hết lượt resend hoặc vượt quota/IP; 503 dịch vụ gửi thư không sẵn sàng. Không trả OTP hoặc số lần resend còn lại.
+**Lỗi:** 400 email/body sai hoặc không còn phiên OTP đang chờ; 429 quá sớm, hết 3 lượt resend/phiên hoặc vượt quota chống spam/IP; 503 dịch vụ gửi thư không sẵn sàng. Response trả `remainingResends` giảm dần 2, 1, 0 và `flowExpiresIn` là thời gian phiên còn lại.
 
 ### 4. Xác thực OTP / Đăng nhập — `POST /auth/otp/verify`
 
@@ -148,7 +153,7 @@ Content-Type: application/json
 
 - OTP sai tối đa **3 lần/mã**; sai lần thứ 3 khóa mã. Gửi lại tạo mã mới, số lần thử của mã mới bắt đầu từ 0.
 - Mã đã dùng, hết hạn, bị thay thế hoặc bị khóa không xác thực được. Hai request đồng thời không dùng cùng mã thành công hai lần.
-- Xác thực đúng mới tạo user nếu chưa tồn tại; user có sẵn giữ nguyên UUID.
+- Xác thực đúng đóng toàn bộ phiên OTP, rồi tạo session đăng nhập; user chưa tồn tại mới được tạo, user có sẵn giữ nguyên UUID. Sau đăng xuất, `/auth/otp/send` có thể bắt đầu phiên mới ngay nếu chưa vượt hạn mức chống spam. `/resend` của phiên đã verify trả 400.
 - Access Token là JWT sống 900 giây. Refresh Token là opaque `<session UUID>.<secret base64url 43 ký tự>`, không phải JWT.
 - Session ban đầu có thời hạn 30 ngày; `refreshExpiresIn` là thời gian còn lại.
 - Giới hạn IP: 15 request/phút.
@@ -373,7 +378,7 @@ Content-Type: application/json
 
 **Validation:** `destinationId` là UUID lấy từ API điểm đến. Không gửi `slug`, `userId` hoặc email để định danh người bình chọn; backend lấy user từ Access Token.
 
-- Mỗi tài khoản tối đa **3 phiếu trong toàn hội thi**, không phải mỗi ngày. Không bình chọn cùng điểm đến hai lần.
+- Mỗi tài khoản được bình chọn cho **không giới hạn số điểm đến khác nhau**. Mỗi điểm đến chỉ được bình chọn **một lần/tài khoản trong toàn hội thi**, không reset theo ngày.
 - Không có API hủy, sửa hoặc chuyển phiếu.
 - Điểm đến phải tồn tại và active; backend kiểm tra thời gian bằng đồng hồ PostgreSQL sau khi lấy khóa.
 - Lịch chỉ mở khi cấu hình đủ `VOTING_START_AT` và `VOTING_END_AT`; source chấp nhận `start <= now <= end`. Không tự suy đoán giờ mở/đóng từ ngày 05–20/11/2026.
@@ -387,9 +392,9 @@ Content-Type: application/json
 | 401  | Thiếu/sai token, session không hợp lệ, user bị chặn ở guard           |
 | 403  | Hội thi chưa mở/đã đóng hoặc user bị chặn phát hiện trong transaction |
 | 404  | Không tìm thấy điểm đến                                               |
-| 409  | Trùng điểm đến hoặc đã dùng hết lượt                                  |
+| 409  | Tài khoản đã bình chọn cho điểm đến này                               |
 
-Với cấu hình mặc định, hết lượt có message `Bạn đã dùng hết 3 lượt bình chọn.`; trùng điểm đến có message `Bạn đã bình chọn cho điểm đến này.`.
+Bình chọn trùng trả 409 với message `Bạn đã bình chọn cho điểm đến này.`. Không còn lỗi hết tổng lượt bình chọn.
 
 **Response 201 Created**
 
@@ -412,9 +417,10 @@ Authorization: Bearer <accessToken>
 
 Không có body/query. Phiếu sắp theo thời điểm tạo rồi ID.
 
-- `usedVotes`: số phiếu đã bỏ; `remainingVotes`: số lượt còn lại; `maxVotes`: hạn mức đang cấu hình, mặc định 3.
-- Chưa bỏ phiếu: `items: []`, `usedVotes: 0`, `remainingVotes: 3`, `maxVotes: 3` ở cấu hình mặc định.
-- Điểm đến bị ẩn sau khi bỏ phiếu vẫn xuất hiện trong lịch sử và vẫn tính lượt đã dùng; không hoàn lượt.
+- `usedVotes`: số điểm đến tài khoản đã bình chọn. `remainingVotes` và `maxVotes` luôn là **null** vì không có hạn mức tổng; không phải 0 hoặc một số lớn giả lập.
+- Chưa bỏ phiếu: `items: []`, `usedVotes: 0`, `remainingVotes: null`, `maxVotes: null`.
+- Điểm đến bị ẩn sau khi bỏ phiếu vẫn xuất hiện trong lịch sử và vẫn được tính trong `usedVotes`.
+- Frontend không khóa nút Vote theo `usedVotes >= 3` hoặc theo giá trị falsy của `remainingVotes`. Chỉ đánh dấu đã vote cho các `destinationId` có trong `items`, cùng trạng thái đăng nhập/thời gian hội thi.
 - Object `destination` là bản tóm tắt, không có `detail` hoặc `media`.
 
 **Lỗi:** 401 thiếu/sai/hết hạn token hoặc session/user không hợp lệ.
@@ -440,8 +446,8 @@ Không có body/query. Phiếu sắp theo thời điểm tạo rồi ID.
     }
   ],
   "usedVotes": 1,
-  "remainingVotes": 2,
-  "maxVotes": 3
+  "remainingVotes": null,
+  "maxVotes": null
 }
 ```
 
@@ -630,8 +636,8 @@ Lỗi gửi thư ví dụ:
 
 ## Luồng tích hợp
 
-1. Nhập email → gửi OTP → hiển thị bộ đếm từ `expiresIn` và `retryAfter`.
-2. Gửi lại dùng `/auth/otp/resend`; không tự gửi liên tục. Response không có số lượt resend còn lại nên client không coi bộ đếm local là nguồn quyết định hạn mức.
+1. Nhập email → gửi OTP → hiển thị bộ đếm từ `expiresIn`, `retryAfter`, `flowExpiresIn` và số lần resend từ `remainingResends`.
+2. Gửi lại dùng `/auth/otp/resend`; không tự gửi liên tục. Dùng `remainingResends` để hiển thị lượt còn lại trong phiên, `flowExpiresIn` để biết phiên còn hiệu lực; server quyết định quota cuối cùng. `send` trả 409 thì chuyển sang nhập OTP/gửi lại, không lặp send.
 3. Nhập OTP dạng string → verify → nhận token pair và user.
 4. Gắn Bearer cho `/auth/me`, `/votes`, `/votes/me`.
 5. Khi API cần xác thực trả 401, thử refresh có điều phối; nếu refresh thành công thì thay cả hai token. Refresh bị từ chối thì xóa phiên và yêu cầu đăng nhập lại.
@@ -644,10 +650,31 @@ Lỗi gửi thư ví dụ:
 - 12 API nghiệp vụ + 1 route kiểm tra ứng dụng như danh sách trên. Không có Admin CRUD, upload media, lấy OTP công khai, hủy/sửa phiếu hay endpoint cài OAuth.
 - 35 bài thi đã được seed video Vimeo, ảnh Cloudinary và ảnh đại diện. Các link trùng trong danh sách cung cấp được giữ nguyên; không giả định một URL chỉ thuộc một bài.
 - Gmail OAuth credential chỉ ở backend. Người dùng website không phải đăng nhập/cấp quyền Gmail để nhận OTP.
-- Chưa có cookie session tự động: token được trả trong JSON; client chọn cơ chế lưu phiên phù hợp với kiến trúc ứng dụng.
+- Chưa có cookie session tự động: token được trả trong JSON. Frontend cần giữ Refresh Token theo cơ chế lưu phiên của ứng dụng, khôi phục bằng `/auth/me` hoặc `/auth/refresh` khi tải lại/đóng mở tab; không tự gọi logout khi unmount/đóng tab. Chỉ cần OTP lại khi đã chủ động logout hoặc session không còn dùng được. Không reset hạn mức chống spam khi logout.
 - Source hiện chưa gọi `app.enableCors()`. Trình duyệt gọi frontend/backend khác origin cần cấu hình CORS hoặc qua server/proxy frontend. CORS không thay thế bảo vệ API khỏi spam.
 - Dùng HTTPS ở production. Trên Render cần cập nhật đúng các biến môi trường và deploy code mới; `.env` local không tự đồng bộ.
 
 ## File Postman đi kèm
 
 Import `dulichnongthon.postman_collection.json`. Điền `BASE_URL`, `email`, `otp`, `destinationId`, `slug`, `accessToken`, `refreshToken` bằng dữ liệu thật. Collection không chứa secret, không tự gửi request, không tự lấy token và không tự bình chọn. Các response trong collection là ví dụ minh họa như tài liệu.
+
+### Dữ liệu hiển thị card bài thi
+
+Các object điểm đến trong `/destinations`, `/destinations/:slug`, `/rankings/top`,
+`/rankings` và `/votes/me` có thêm:
+
+```json
+{
+  "contestCode": "DLNT01",
+  "shortTitle": "Làng văn hóa du lịch cộng đồng thôn Bản Khun"
+}
+```
+
+Frontend dùng `contestCode` và `shortTitle` trên card, bỏ dòng địa chỉ/tỉnh trên card.
+Trang chi tiết tiếp tục dùng `title`, `detail`, `province`, `media` hiện tại.
+`title` không bị thay thế bằng tên ngắn. `shortTitle` tự dùng `title` nếu chưa có dữ liệu;
+`contestCode` có thể `null`, khi đó ẩn mã trên card.
+Tìm kiếm hỗ trợ cả mã bài thi và tên ngắn.
+
+Nguồn mã/tên: [Danh sách hội thi](https://docs.google.com/document/d/1o8lasFe230XrkehvBuwN551J5wq1jeWhRL5itVbUJLA/edit).
+Đã đủ 35 bài: bài 8/9 được người dùng xác nhận mã `DLNT08`, `DLNT09` và giữ tên hiện tại. Mã bài 13 là `DLNT013`, giữ đúng tài liệu.

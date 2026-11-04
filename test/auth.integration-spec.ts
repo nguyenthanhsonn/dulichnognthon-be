@@ -10,7 +10,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { DataSource } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import pg from 'pg';
 import request from 'supertest';
 import { AuthModule } from '../src/modules/auth.module.js';
@@ -112,7 +112,7 @@ it('normalizes email consistently for cooldown, verification and existing accoun
   await request(app.getHttpServer())
     .post('/auth/otp/send')
     .send({ email: address })
-    .expect(429);
+    .expect(409);
   const first = await request(app.getHttpServer())
     .post('/auth/otp/verify')
     .send({ email: address.toUpperCase(), otp: delivered.get(address) })
@@ -120,7 +120,7 @@ it('normalizes email consistently for cooldown, verification and existing accoun
   await database
     .getRepository(OtpCode)
     .update({ email: address }, { createdAt: new Date(Date.now() - 61000) });
-  await send(address, '/auth/otp/resend');
+  await send(address);
   const second = await request(app.getHttpServer())
     .post('/auth/otp/verify')
     .send({ email: address, otp: delivered.get(address) })
@@ -131,10 +131,144 @@ it('normalizes email consistently for cooldown, verification and existing accoun
   );
 });
 
+it('starts a fresh flow immediately after successful login/logout instead of blocking for one hour', async () => {
+  const { number, tokens } = await login();
+  const prior = await database
+    .getRepository(OtpCode)
+    .findOneByOrFail({ email: number });
+  expect(prior.verifiedAt).not.toBeNull();
+  await request(app.getHttpServer())
+    .post('/auth/logout')
+    .send({ refreshToken: tokens.refreshToken })
+    .expect(204);
+  const next = await send(number);
+  expect(next.response.body.remainingResends).toBe(3);
+  const latest = await database.getRepository(OtpCode).findOneOrFail({
+    where: { email: number },
+    order: { createdAt: 'DESC', id: 'DESC' },
+  });
+  expect(latest.flowId).not.toBe(prior.flowId);
+  await request(app.getHttpServer())
+    .post('/auth/otp/verify')
+    .send({ email: number, otp: next.code })
+    .expect(200)
+    .expect((response) => {
+      expect(response.body.user.id).toBe(tokens.user.id);
+    });
+  await request(app.getHttpServer())
+    .post('/auth/otp/resend')
+    .send({ email: number })
+    .expect(400);
+  await request(app.getHttpServer())
+    .post('/auth/refresh')
+    .send({ refreshToken: tokens.refreshToken })
+    .expect(401);
+});
+
+it('closes a flow after three resends and verification, then gives the next flow three new resends', async () => {
+  const { number } = await send();
+  const first = await database
+    .getRepository(OtpCode)
+    .findOneByOrFail({ email: number });
+  for (let i = 0; i < 3; i++) {
+    await database
+      .getRepository(OtpCode)
+      .createQueryBuilder()
+      .update()
+      .set({ createdAt: () => "created_at - interval '61 seconds'" })
+      .where({ email: number })
+      .execute();
+    const next = await send(number, '/auth/otp/resend');
+    expect(next.response.body.remainingResends).toBe(2 - i);
+  }
+  await request(app.getHttpServer())
+    .post('/auth/otp/verify')
+    .send({ email: number, otp: delivered.get(number) })
+    .expect(200);
+  expect(
+    await database
+      .getRepository(OtpCode)
+      .countBy({ flowId: first.flowId!, verifiedAt: IsNull() }),
+  ).toBe(0);
+  const next = await send(number);
+  expect(next.response.body.remainingResends).toBe(3);
+  expect(
+    await database
+      .getRepository(OtpCode)
+      .countBy({ email: number, requestType: 'SEND' }),
+  ).toBe(2);
+});
+
+it('keeps the hourly anti-spam budget across completed flows and restores it after the rolling hour', async () => {
+  const { number } = await send();
+  const now = new Date();
+  await database
+    .getRepository(OtpCode)
+    .update({ email: number }, { verifiedAt: now, consumedAt: now });
+  await database.getRepository(OtpCode).insert(
+    Array.from({ length: settings.otpMaxPerHour - 1 }, () => ({
+      email: number,
+      requestType: 'SEND' as const,
+      flowId: randomUUID(),
+      flowExpiresAt: new Date(Date.now() + 1800000),
+      codeHash: 'historical-hash',
+      expiresAt: now,
+      createdAt: new Date(Date.now() - 120000),
+      verifiedAt: now,
+      consumedAt: now,
+    })),
+  );
+  await request(app.getHttpServer())
+    .post('/auth/otp/send')
+    .send({ email: number })
+    .expect(429);
+  expect(await database.getRepository(OtpCode).countBy({ email: number })).toBe(
+    settings.otpMaxPerHour,
+  );
+  await database
+    .getRepository(OtpCode)
+    .update({ email: number }, { createdAt: new Date(Date.now() - 3601000) });
+  await send(number);
+});
+
+it('caps a resent code at the remaining flow lifetime and rejects an expired flow', async () => {
+  const { number } = await send();
+  await database.getRepository(OtpCode).update(
+    { email: number },
+    {
+      createdAt: new Date(Date.now() - 61000),
+      flowExpiresAt: new Date(Date.now() + 120000),
+    },
+  );
+  const next = await send(number, '/auth/otp/resend');
+  expect(next.response.body.expiresIn).toBeGreaterThan(0);
+  expect(next.response.body.expiresIn).toBeLessThanOrEqual(120);
+  await database
+    .getRepository(OtpCode)
+    .update(
+      { email: number },
+      { createdAt: new Date(Date.now() - 61000), flowExpiresAt: new Date(0) },
+    );
+  await request(app.getHttpServer())
+    .post('/auth/otp/verify')
+    .send({ email: number, otp: next.code })
+    .expect(401);
+  await request(app.getHttpServer())
+    .post('/auth/otp/resend')
+    .send({ email: number })
+    .expect(400);
+  await send(number);
+});
+
 it('sends a six-digit OTP, stores only its hash and creates no user until verification', async () => {
   const { number, code, response } = await send();
   expect(code).toMatch(/^\d{6}$/);
-  expect(response.body).toMatchObject({ expiresIn: 300, retryAfter: 60 });
+  expect(response.body).toMatchObject({
+    expiresIn: 300,
+    retryAfter: 60,
+    remainingResends: 3,
+    flowExpiresIn: 1800,
+  });
   expect(response.body).not.toHaveProperty('otp');
   expect(response.headers['cache-control']).toBe('no-store');
   expect(await database.getRepository(User).countBy({ email: number })).toBe(0);
@@ -231,14 +365,14 @@ it('serializes simultaneous sends and enforces the email cooldown', async () => 
     ),
   );
   expect(results.map((result) => result.status).sort((a, b) => a - b)).toEqual([
-    202, 429,
+    202, 409,
   ]);
   expect(await database.getRepository(OtpCode).countBy({ email: number })).toBe(
     1,
   );
 });
 
-it('allows the first send and three hourly resends, rejects the fifth and invalidates old codes', async () => {
+it('allows one send and three resends per flow, rejects reset bypasses and expires abandoned flows', async () => {
   const { number } = await send();
   const first = await database
     .getRepository(OtpCode)
@@ -276,10 +410,17 @@ it('allows the first send and three hourly resends, rejects the fifth and invali
     (await database.getRepository(OtpCode).findOneByOrFail({ id: first.id }))
       .consumedAt,
   ).not.toBeNull();
-  // Cửa sổ một giờ đã qua: người dùng được yêu cầu mã mới, không bị khóa vĩnh viễn.
+  await request(app.getHttpServer())
+    .post('/auth/otp/send')
+    .send({ email: number })
+    .expect(409);
+  // Phiên bỏ dở hết hạn sau 30 phút: được bắt đầu phiên mới, không reset được trước đó.
   await database
     .getRepository(OtpCode)
-    .update({ email: number }, { createdAt: new Date(Date.now() - 3601000) });
+    .update(
+      { email: number },
+      { createdAt: new Date(Date.now() - 1801000), flowExpiresAt: new Date(0) },
+    );
   await request(app.getHttpServer())
     .post('/auth/otp/send')
     .send({ email: number })
@@ -306,7 +447,7 @@ it('rejects resend before an initial send and refuses a second initial send afte
   await request(app.getHttpServer())
     .post('/auth/otp/send')
     .send({ email: address })
-    .expect(429);
+    .expect(409);
   expect(
     await database.getRepository(OtpCode).countBy({ email: address }),
   ).toBe(1);

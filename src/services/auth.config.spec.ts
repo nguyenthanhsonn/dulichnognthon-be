@@ -13,7 +13,9 @@ describe('Auth configuration', () => {
       otpTtlSeconds: 300,
       otpMaxAttempts: 3,
       otpCooldownSeconds: 60,
-      otpMaxPerHour: 4,
+      otpMaxPerHour: 10,
+      otpFlowTtlSeconds: 1800,
+      otpMaxResends: 3,
     });
   });
   it.each([
@@ -23,7 +25,7 @@ describe('Auth configuration', () => {
     { OTP_EXPIRES_SECONDS: '301' },
     { OTP_SEND_COOLDOWN_SECONDS: '0' },
     { OTP_MAX_SENDS_PER_HOUR: 'NaN' },
-    { OTP_MAX_SENDS_PER_HOUR: '5' },
+    { OTP_MAX_SENDS_PER_HOUR: '21' },
   ])('rejects unsafe configuration: %j', (value) => {
     expect(() =>
       getAuthSettings(new ConfigService({ ...secrets, ...value })),

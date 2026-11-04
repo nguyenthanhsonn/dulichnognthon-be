@@ -94,6 +94,11 @@ export class User extends UpdatedEntity {
   'createdAt',
 ])
 @Check('otp_codes_request_type_check', `request_type IN ('SEND', 'RESEND')`)
+@Index('otp_codes_flow_id_request_type_idx', ['flowId', 'requestType'])
+@Check(
+  'otp_codes_flow_metadata_check',
+  '(flow_id IS NULL AND flow_expires_at IS NULL) OR (flow_id IS NOT NULL AND flow_expires_at IS NOT NULL)',
+)
 @Check('otp_attempt_count_check', '"attempt_count" >= 0')
 @Check(
   'otp_codes_email_normalized_check',
@@ -107,9 +112,33 @@ export class OtpCode extends CreatedEntity {
     length: 6,
     default: 'SEND',
     comment:
-      'SEND: gửi đầu, tối đa 1 lần/email/giờ; RESEND: gửi lại, tối đa 3 lần/email/giờ.',
+      'SEND: gửi đầu của phiên xác thực; RESEND: gửi lại, tối đa 3 lần/phiên.',
   })
   requestType: 'SEND' | 'RESEND';
+  @Column({
+    name: 'flow_id',
+    type: 'uuid',
+    nullable: true,
+    comment:
+      'Nhóm một lần gửi đầu và tối đa ba lần gửi lại; dữ liệu cũ được giữ NULL.',
+  })
+  flowId: string | null;
+  @Column({
+    name: 'flow_expires_at',
+    type: 'timestamptz',
+    precision: 6,
+    nullable: true,
+  })
+  flowExpiresAt: Date | null;
+  @Column({
+    name: 'verified_at',
+    type: 'timestamptz',
+    precision: 6,
+    nullable: true,
+    comment:
+      'Phiên OTP đã xác thực thành công; tách biệt consumed_at của mã bị thay thế/khóa/gửi lỗi.',
+  })
+  verifiedAt: Date | null;
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string | null;
   @Column({
@@ -205,6 +234,11 @@ export class AuthSession extends CreatedEntity {
 @Index('destinations_slug_key', ['slug'], { unique: true })
 @Index('destinations_is_active_display_order_idx', ['isActive', 'displayOrder'])
 export class Destination extends UpdatedEntity {
+  // Tên/mã hiển thị card tách khỏi tiêu đề đầy đủ trong hồ sơ chi tiết.
+  @Column({ name: 'contest_code', type: 'varchar', length: 50, nullable: true })
+  contestCode: string | null;
+  @Column({ name: 'short_title', type: 'varchar', length: 255, nullable: true })
+  shortTitle: string | null;
   @Column({ type: 'varchar', length: 255 })
   title: string;
   @Column({ type: 'varchar', length: 255 })
@@ -268,7 +302,7 @@ export class DestinationMedia extends CreatedEntity {
 @Entity({
   name: 'votes',
   comment:
-    'Bình chọn bất biến; tối đa 3 lượt/user, tạo qua transaction khóa user trong VotesRepository.',
+    'Bình chọn bất biến; mỗi tài khoản chỉ bình chọn một lần cho mỗi điểm đến, không giới hạn tổng số điểm đến.',
 })
 @Index('votes_user_id_destination_id_key', ['userId', 'destinationId'], {
   unique: true,

@@ -6,14 +6,18 @@ describe('Voting configuration', () => {
     expect(getVotingSettings(new ConfigService({}))).toMatchObject({
       startsAt: null,
       endsAt: null,
-      maxVotesPerUser: 3,
       otpExpiresSeconds: 300,
       otpMaxAttempts: 3,
     });
   });
 
+  it('ignores the obsolete account vote cap', () => {
+    expect(
+      getVotingSettings(new ConfigService({ MAX_VOTES_PER_USER: '3' })),
+    ).not.toHaveProperty('maxVotesPerUser');
+  });
+
   it.each([
-    { MAX_VOTES_PER_USER: '4' },
     { OTP_MAX_ATTEMPTS: '0' },
     { OTP_EXPIRES_SECONDS: 'invalid' },
     { VOTING_START_AT: '2026-11-05T00:00:00' },

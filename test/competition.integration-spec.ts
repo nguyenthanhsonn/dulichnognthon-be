@@ -262,7 +262,7 @@ it('rejects unauthenticated voting and reading another user history', async () =
   await request(app.getHttpServer()).get('/votes/me').expect(401);
 });
 
-it('accepts the first three votes, rejects duplicates and the fourth, and reports remaining votes', async () => {
+it('accepts votes beyond three destinations, rejects duplicates and reports no account quota', async () => {
   const { token } = await authenticatedUser();
   const targets = await Promise.all(
     Array.from({ length: 4 }, () => destination()),
@@ -271,27 +271,22 @@ it('accepts the first three votes, rejects duplicates and the fourth, and report
   await postVote(token, targets[0].id).expect(409);
   await postVote(token, targets[1].id).expect(201);
   await postVote(token, targets[2].id).expect(201);
-  const fourth = await postVote(token, targets[3].id).expect(409);
-  expect(fourth.body.message).toContain('3');
+  await postVote(token, targets[3].id).expect(201);
+  await postVote(token, targets[3].id).expect(409);
   const mine = await request(app.getHttpServer())
     .get('/votes/me')
     .set('Authorization', `Bearer ${token}`)
     .expect(200);
   expect(mine.body).toMatchObject({
-    usedVotes: 3,
-    remainingVotes: 0,
-    maxVotes: 3,
+    usedVotes: 4,
+    remainingVotes: null,
+    maxVotes: null,
   });
   expect(
     mine.body.items
       .map((value: { destinationId: string }) => value.destinationId)
       .sort(),
-  ).toEqual(
-    targets
-      .slice(0, 3)
-      .map((value) => value.id)
-      .sort(),
-  );
+  ).toEqual(targets.map((value) => value.id).sort());
   const another = await authenticatedUser();
   const empty = await request(app.getHttpServer())
     .get('/votes/me')
@@ -300,7 +295,8 @@ it('accepts the first three votes, rejects duplicates and the fourth, and report
   expect(empty.body).toMatchObject({
     items: [],
     usedVotes: 0,
-    remainingVotes: 3,
+    remainingVotes: null,
+    maxVotes: null,
   });
 });
 
@@ -314,7 +310,7 @@ it('rejects malformed UUIDs and client-supplied user IDs', async () => {
     .expect(400);
 });
 
-it('cannot exceed three votes under eight concurrent HTTP requests', async () => {
+it('accepts all eight distinct concurrent HTTP votes', async () => {
   const { token, account } = await authenticatedUser();
   const targets = await Promise.all(
     Array.from({ length: 8 }, () => destination()),
@@ -322,11 +318,11 @@ it('cannot exceed three votes under eight concurrent HTTP requests', async () =>
   const responses = await Promise.all(
     targets.map((item) => postVote(token, item.id)),
   );
-  expect(responses.filter((value) => value.status === 201)).toHaveLength(3);
-  expect(responses.filter((value) => value.status === 409)).toHaveLength(5);
+  expect(responses.filter((value) => value.status === 201)).toHaveLength(8);
+  expect(responses.filter((value) => value.status === 409)).toHaveLength(0);
   expect(
     await database.getRepository(Vote).countBy({ userId: account.id }),
-  ).toBe(3);
+  ).toBe(8);
 });
 
 it('rejects inactive and nonexistent destinations without consuming a vote', async () => {
@@ -376,7 +372,7 @@ it('counts votes directly, includes zero-vote destinations and uses deterministi
   });
   const hidden = await destination({ displayOrder: 0 });
   const people = await Promise.all([user(), user(), user()]);
-  // Fixture hợp lệ: mỗi user <= 3 phiếu; điểm đến chỉ bị ẩn sau khi có phiếu.
+  // Điểm đến chỉ bị ẩn sau khi đã có phiếu.
   const pairs = [
     [0, 0],
     [0, 1],
@@ -427,7 +423,11 @@ it('keeps a hidden destination in user history without refunding the vote', asyn
     .get('/votes/me')
     .set('Authorization', `Bearer ${token}`)
     .expect(200);
-  expect(mine.body).toMatchObject({ usedVotes: 1, remainingVotes: 2 });
+  expect(mine.body).toMatchObject({
+    usedVotes: 1,
+    remainingVotes: null,
+    maxVotes: null,
+  });
   expect(mine.body.items[0].destination.id).toBe(target.id);
 });
 

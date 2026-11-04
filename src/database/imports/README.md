@@ -68,3 +68,19 @@ Seed dùng transaction và khóa riêng, yêu cầu đủ 35 slug trước khi g
 không tạo trùng, giữ UUID ảnh do seed quản lý khi đổi link. Không sửa video, ảnh
 khác đã có, nội dung bài thi hoặc phiếu. Thay thumbnail sẽ cập nhật `updated_at`
 qua trigger hiện có. Bài 4–5 và 23–24 dùng chung ảnh đúng danh sách cung cấp.
+
+### Mã và tên ngắn trên card
+
+```bash
+npm run build
+npm run db:migrate
+npm run db:seed:cards -- --dry-run
+npm run db:seed:cards
+```
+
+Seed ghép theo số bài trong danh sách gốc và slug, chỉ cập nhật `contest_code`,
+`short_title`; không đổi title/detail/UUID/slug/media/phiếu. Có thể chạy lại.
+Nguồn: https://docs.google.com/document/d/1o8lasFe230XrkehvBuwN551J5wq1jeWhRL5itVbUJLA/edit
+Đã đủ 35 bài. Bài 8/9 dùng mã `DLNT08`, `DLNT09` do người dùng xác nhận, giữ nguyên tên hiện tại.
+Mã bài 13 giữ `DLNT013` đúng tài liệu. Chưa có source frontend trong repository này;
+frontend cần dùng `contestCode`, `shortTitle` trên card và giữ `title` ở trang chi tiết.

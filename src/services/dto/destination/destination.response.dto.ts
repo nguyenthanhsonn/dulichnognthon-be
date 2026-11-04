@@ -3,6 +3,8 @@ import type { Destination } from '../../../database/entities/voting.entities.js'
 export class DestinationSummaryDto {
   id: string;
   title: string;
+  contestCode: string | null;
+  shortTitle: string;
   slug: string;
   brief: string;
   province: string | null;
@@ -38,6 +40,8 @@ export function destinationSummary(
   return {
     id: destination.id,
     title: destination.title,
+    contestCode: destination.contestCode ?? null,
+    shortTitle: destination.shortTitle ?? destination.title,
     slug: destination.slug,
     brief: destination.brief,
     province: destination.province,

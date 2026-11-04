@@ -4,6 +4,10 @@ import { InitVoting1793715300000 } from './migrations/1793715300000-init-voting.
 import { AuthOtpPhone1793718000000 } from './migrations/1793718000000-auth-otp-phone.js';
 import { AuthEmail1793757600000 } from './migrations/1793757600000-auth-email.js';
 import { OtpResend1793800000000 } from './migrations/1793800000000-otp-resend.js';
+import { UnlimitedVoting1793826000000 } from './migrations/1793826000000-unlimited-voting.js';
+import { OtpFlows1793839000000 } from './migrations/1793839000000-otp-flows.js';
+
+import { DestinationCards1793842000000 } from './migrations/1793842000000-destination-cards.js';
 
 export function getDatabaseUrl(connectionString: string | undefined): string {
   const url = connectionString?.trim();
@@ -54,6 +58,9 @@ export function createDatabaseOptions(
       AuthOtpPhone1793718000000,
       AuthEmail1793757600000,
       OtpResend1793800000000,
+      UnlimitedVoting1793826000000,
+      OtpFlows1793839000000,
+      DestinationCards1793842000000,
     ],
     migrationsTableName: 'typeorm_migrations',
     migrationsTransactionMode: 'all',

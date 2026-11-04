@@ -19,8 +19,6 @@ services:
         sync: false
       # Thêm VOTING_START_AT/VOTING_END_AT thủ công khi có lịch chính thức.
       # Chưa có hai biến này thì bình chọn đóng.
-      - key: MAX_VOTES_PER_USER
-        value: '3'
       - key: OTP_EXPIRES_SECONDS
         value: '300'
       - key: OTP_MAX_ATTEMPTS
@@ -43,6 +41,6 @@ services:
       - key: OTP_SEND_COOLDOWN_SECONDS
         value: '60'
       - key: OTP_MAX_SENDS_PER_HOUR
-        value: '4'
+        value: '10'
       - key: TRUST_PROXY_HOPS
         value: '1'

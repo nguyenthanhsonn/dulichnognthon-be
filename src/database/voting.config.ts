@@ -43,7 +43,6 @@ export function getVotingSettings(config: ConfigService) {
     // Thiếu lịch chính thức nghĩa là hội thi chưa mở, không tự áp dụng lịch đề xuất.
     startsAt,
     endsAt,
-    maxVotesPerUser: integer('MAX_VOTES_PER_USER', 3, 3),
     otpExpiresSeconds: integer('OTP_EXPIRES_SECONDS', 300, 300),
     otpMaxAttempts: integer('OTP_MAX_ATTEMPTS', 3, 3),
   };

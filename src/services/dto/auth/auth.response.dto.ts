@@ -8,6 +8,8 @@ export class SendOtpResponseDto {
   message: string;
   expiresIn: number;
   retryAfter: number;
+  remainingResends: number;
+  flowExpiresIn: number;
 }
 
 export class TokenResponseDto {

@@ -13,6 +13,7 @@ export class MyVoteDto extends VoteResponseDto {
 export class MyVotesResponseDto {
   items: MyVoteDto[];
   usedVotes: number;
-  remainingVotes: number;
-  maxVotes: number;
+  /** Không có hạn mức tổng cho tài khoản. */
+  remainingVotes: null;
+  maxVotes: null;
 }

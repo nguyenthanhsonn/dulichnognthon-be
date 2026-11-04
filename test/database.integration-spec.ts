@@ -77,20 +77,15 @@ it('creates exactly seven tables and stores Vietnamese table comments', async ()
   expect(rows.every((row) => Boolean(row.comment))).toBe(true);
 });
 
-it('allows exactly three concurrent votes and persists all audit outcomes', async () => {
+it('allows eight distinct concurrent votes and persists every successful audit', async () => {
   const { user, destinations } = await fixtures(8);
   const results = await Promise.all(
     destinations.map((destination) => votes.castVote(user.id, destination.id)),
   );
-  expect(results.filter((result) => result.accepted)).toHaveLength(3);
-  expect(
-    results.filter(
-      (result) => !result.accepted && result.reason === 'VOTE_LIMIT_REACHED',
-    ),
-  ).toHaveLength(5);
+  expect(results.filter((result) => result.accepted)).toHaveLength(8);
   expect(
     await dataSource.getRepository(Vote).count({ where: { userId: user.id } }),
-  ).toBe(3);
+  ).toBe(8);
   expect(
     await dataSource
       .getRepository(VoteAttempt)

@@ -15,8 +15,7 @@ type Rejection =
   | 'DESTINATION_NOT_FOUND'
   | 'DESTINATION_INACTIVE'
   | 'VOTING_CLOSED'
-  | 'ALREADY_VOTED'
-  | 'VOTE_LIMIT_REACHED';
+  | 'ALREADY_VOTED';
 
 export type VoteOutcome =
   { accepted: true; vote: Vote } | { accepted: false; reason: Rejection };
@@ -51,7 +50,7 @@ export class VotesRepository {
     return this.dataSource.transaction(
       'READ COMMITTED',
       async (tx): Promise<VoteOutcome> => {
-        // Mọi request của cùng user phải chờ khóa này trước khi đếm lượt.
+        // Tuần tự hóa request của cùng user để chống bình chọn trùng đồng thời.
         // READ COMMITTED lấy snapshot mới ở câu SELECT kế tiếp sau khi chờ khóa.
         const user = await tx.findOne(User, {
           where: { id: userId },
@@ -83,7 +82,7 @@ export class VotesRepository {
         const [clock] = await tx.query<{ now: Date }[]>(
           'SELECT clock_timestamp() AS now',
         );
-        const { startsAt, endsAt, maxVotesPerUser } = this.settings;
+        const { startsAt, endsAt } = this.settings;
         if (
           !startsAt ||
           !endsAt ||
@@ -94,9 +93,6 @@ export class VotesRepository {
         }
         const existing = await tx.findOneBy(Vote, { userId, destinationId });
         if (existing) return reject('ALREADY_VOTED');
-        if ((await tx.countBy(Vote, { userId })) >= maxVotesPerUser) {
-          return reject('VOTE_LIMIT_REACHED');
-        }
 
         const vote = await tx.save(
           Vote,

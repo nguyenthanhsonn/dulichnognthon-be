@@ -28,6 +28,8 @@ export class DestinationService {
         new Brackets((part) =>
           part
             .where('destination.title ILIKE :search', { search })
+            .orWhere('destination.shortTitle ILIKE :search', { search })
+            .orWhere('destination.contestCode ILIKE :search', { search })
             .orWhere('destination.brief ILIKE :search', { search })
             .orWhere('destination.province ILIKE :search', { search }),
         ),

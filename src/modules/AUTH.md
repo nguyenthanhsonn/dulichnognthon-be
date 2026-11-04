@@ -103,14 +103,14 @@ AUTH_OTP_SECRET=<secret khác, tối thiểu 32 ký tự>
 OTP_EXPIRES_SECONDS=300
 OTP_MAX_ATTEMPTS=3
 OTP_SEND_COOLDOWN_SECONDS=60
-OTP_MAX_SENDS_PER_HOUR=4
+OTP_MAX_SENDS_PER_HOUR=10
 ```
 
 Sinh secret bằng `openssl rand -hex 32`. Giữ secret trong `.env` hoặc Environment.
 
-Nếu service Render cũ còn `OTP_MAX_SENDS_PER_HOUR=5`, đổi thành `4` trong
-Environment trước khi redeploy. Cấu hình chỉ cho phép tối đa 4 lần gửi/email trong
-cửa sổ một giờ (1 lần đầu + 3 lần gửi lại); mỗi mã tối đa 3 lần nhập sai.
+Trên Render, đổi `OTP_MAX_SENDS_PER_HOUR` cũ (4/5) thành `10` rồi redeploy.
+Đây là hạn mức chống spam cho email qua mọi phiên, không phải số resend trong một
+phiên. Mỗi phiên OTP có một SEND và tối đa ba RESEND, khóa mã sau ba lần nhập sai.
 
 ```bash
 npm run build
@@ -155,9 +155,10 @@ Response auth dùng `Cache-Control: no-store`.
   Gửi lại vô hiệu mã cũ; một mã chỉ được xác thực thành công một lần.
 - Advisory lock PostgreSQL theo email bảo vệ send/verify giữa các instance,
   kể cả trước khi user tồn tại. Chỉ tạo user sau khi xác thực thành công.
-- Tối thiểu 60 giây giữa các lần gửi, tối đa 4 challenge/email/giờ (1 lần đầu + 3 lần gửi lại). Gửi lỗi vẫn
-  tính vào giới hạn. Trả 429 khi vượt giới hạn.
-- Giới hạn IP: send 5/phút, verify 15/phút, các route auth khác 60/phút; bộ đếm IP
+- Trong phiên đang chờ, mỗi lần resend cách ít nhất 60 giây và tối đa 3 lần/phiên.
+  Quota chống spam độc lập mặc định 10 challenge/email/giờ, tính cả các phiên đã
+  hoàn tất. Gửi lỗi vẫn tính quota. Trả 429 khi vượt giới hạn.
+- Giới hạn IP: send + resend dùng chung 5/phút, verify 15/phút, các route auth khác 60/phút; bộ đếm IP
   nằm trong bộ nhớ mỗi instance. Render đặt `TRUST_PROXY_HOPS=1`, local trực tiếp `0`.
 - Access token HS256 sống 15 phút, kiểm tra issuer/audience, session và blocked user.
   Logout khiến access token bị từ chối ở lần kiểm tra sau.
@@ -182,14 +183,25 @@ Database test dùng schema tạm riêng, bao gồm nâng cấp từ schema phone
 vào bảng public, không gửi email thật. Việc gửi và nhận thư thực tế cần credential
 OAuth Gmail API và một lần thử gửi nhận thực tế.
 
-## Gửi đầu và gửi lại tách riêng
+## Phiên xác thực OTP và phiên đăng nhập
 
-`/auth/otp/send` tối đa 1 lần/email trong cửa sổ trượt một giờ.
-`/auth/otp/resend` tối đa 3 lần/email/giờ và yêu cầu có SEND trong cùng cửa sổ.
-Chưa gửi đầu trả 400; gọi send lần hai hoặc hết lượt resend trả 429. Cả hai cách
-lần gửi trước ít nhất 60 giây và dùng chung 5 request/IP/phút. Tổng không vượt
-`OTP_MAX_SENDS_PER_HOUR` (mặc định 4). Mỗi mã vẫn khóa sau 3 lần nhập sai.
+- `POST /auth/otp/send` tạo phiên OTP tối đa 30 phút, gửi đầu một lần.
+- `POST /auth/otp/resend` dùng phiên đang chờ, gửi lại tối đa ba lần, chờ 60 giây
+  giữa các lần gửi. Mỗi mã tối đa 5 phút, không vượt thời điểm hết hạn phiên.
+- `send` khi còn phiên chưa kết thúc trả 409, frontend mở màn hình nhập mã/gửi lại.
+  Mã đã dùng hết lượt nhập sai vẫn có thể resend nếu còn lượt. Không gọi send để reset.
+- Verify thành công đánh dấu `verified_at` cho cả nhóm `flow_id`, kết thúc phiên OTP;
+  lần đăng nhập mới được SEND ngay, kể cả vừa logout. RESEND sau verify trả 400.
+- Phiên bỏ dở hết hạn sau 30 phút; có thể bắt đầu phiên mới sau cooldown nếu lần gửi
+  cuối vừa xảy ra. Resend không kéo dài mốc 30 phút.
+- Chống spam riêng: `OTP_MAX_SENDS_PER_HOUR=10`, tính mọi SEND/RESEND theo email
+  trong cửa sổ trượt 1 giờ; verify/logout không xóa bộ đếm. IP vẫn dùng chung 5/phút.
+- Request send/resend vẫn chỉ cần email. Response thêm `remainingResends` (3 sau
+  SEND, giảm 2/1/0 sau RESEND) và `flowExpiresIn`; các field cũ được giữ.
+- Session đăng nhập khác phiên OTP: Access Token 15 phút, Refresh Token tối đa 30 ngày.
+  Frontend phải giữ/refresh token khi mở lại trang; đóng tab không phải logout.
 
-Migration `OtpResend1793800000000` thêm `otp_codes.request_type` (SEND/RESEND),
-check constraint và index email/loại/thời gian. Challenge cũ được coi là SEND.
-Cần chạy `npm run build` và `npm run db:migrate` trước khi chạy bản mới.
+Migration `OtpFlows1793839000000` thêm `flow_id`, `flow_expires_at`, `verified_at`
+vào `otp_codes`, cùng index/check. Các challenge cũ giữ metadata NULL; mã cũ còn
+hạn vẫn xác thực được, không xóa account/session/vote. Muốn resend dữ liệu cũ cần
+bắt đầu phiên mới. Chạy build và migration trước khi khởi động bản mới.

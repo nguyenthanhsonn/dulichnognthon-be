@@ -10,6 +10,7 @@ export default defineConfig({
       'test/competition.integration-spec.ts',
       'test/contest-videos.integration-spec.ts',
       'test/contest-images.integration-spec.ts',
+      'test/contest-cards.integration-spec.ts',
     ],
     testTimeout: 60000,
     hookTimeout: 60000,

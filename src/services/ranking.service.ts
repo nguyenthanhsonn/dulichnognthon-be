@@ -6,6 +6,8 @@ import type { RankingResponseDto } from './dto/ranking/ranking.response.dto.js';
 interface RankingRow {
   id: string;
   title: string;
+  contestCode: string | null;
+  shortTitle: string;
   slug: string;
   brief: string;
   province: string | null;
@@ -30,6 +32,11 @@ export class RankingService {
       .where('destination.isActive = :active', { active: true })
       .select('destination.id', 'id')
       .addSelect('destination.title', 'title')
+      .addSelect('destination.contestCode', 'contestCode')
+      .addSelect(
+        'COALESCE(destination.shortTitle, destination.title)',
+        'shortTitle',
+      )
       .addSelect('destination.slug', 'slug')
       .addSelect('destination.brief', 'brief')
       .addSelect('destination.province', 'province')
