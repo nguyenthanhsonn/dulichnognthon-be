@@ -26,6 +26,7 @@ export function getAuthSettings(config: ConfigService) {
     otpTtlSeconds: integer('OTP_EXPIRES_SECONDS', 300, 300),
     otpMaxAttempts: integer('OTP_MAX_ATTEMPTS', 3, 3),
     otpCooldownSeconds: integer('OTP_SEND_COOLDOWN_SECONDS', 60, 3600),
-    otpMaxPerHour: integer('OTP_MAX_SENDS_PER_HOUR', 5, 20),
+    // Một lần đầu + ba lần gửi lại trong cửa sổ một giờ; cấu hình không được vượt 4.
+    otpMaxPerHour: integer('OTP_MAX_SENDS_PER_HOUR', 4, 4),
   };
 }

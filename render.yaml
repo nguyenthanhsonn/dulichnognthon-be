@@ -43,6 +43,6 @@ services:
       - key: OTP_SEND_COOLDOWN_SECONDS
         value: '60'
       - key: OTP_MAX_SENDS_PER_HOUR
-        value: '5'
+        value: '4'
       - key: TRUST_PROXY_HOPS
         value: '1'

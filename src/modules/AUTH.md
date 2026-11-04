@@ -103,10 +103,14 @@ AUTH_OTP_SECRET=<secret khác, tối thiểu 32 ký tự>
 OTP_EXPIRES_SECONDS=300
 OTP_MAX_ATTEMPTS=3
 OTP_SEND_COOLDOWN_SECONDS=60
-OTP_MAX_SENDS_PER_HOUR=5
+OTP_MAX_SENDS_PER_HOUR=4
 ```
 
 Sinh secret bằng `openssl rand -hex 32`. Giữ secret trong `.env` hoặc Environment.
+
+Nếu service Render cũ còn `OTP_MAX_SENDS_PER_HOUR=5`, đổi thành `4` trong
+Environment trước khi redeploy. Cấu hình chỉ cho phép tối đa 4 lần gửi/email trong
+cửa sổ một giờ (1 lần đầu + 3 lần gửi lại); mỗi mã tối đa 3 lần nhập sai.
 
 ```bash
 npm run build
@@ -150,7 +154,7 @@ Response auth dùng `Cache-Control: no-store`.
   Gửi lại vô hiệu mã cũ; một mã chỉ được xác thực thành công một lần.
 - Advisory lock PostgreSQL theo email bảo vệ send/verify giữa các instance,
   kể cả trước khi user tồn tại. Chỉ tạo user sau khi xác thực thành công.
-- Tối thiểu 60 giây giữa các lần gửi, tối đa 5 challenge/email/giờ. Gửi lỗi vẫn
+- Tối thiểu 60 giây giữa các lần gửi, tối đa 4 challenge/email/giờ (1 lần đầu + 3 lần gửi lại). Gửi lỗi vẫn
   tính vào giới hạn. Trả 429 khi vượt giới hạn.
 - Giới hạn IP: send 5/phút, verify 15/phút, các route auth khác 60/phút; bộ đếm IP
   nằm trong bộ nhớ mỗi instance. Render đặt `TRUST_PROXY_HOPS=1`, local trực tiếp `0`.

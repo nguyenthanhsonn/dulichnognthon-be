@@ -238,12 +238,12 @@ it('serializes simultaneous sends and enforces the email cooldown', async () => 
   );
 });
 
-it('enforces the hourly email limit and invalidates replaced codes', async () => {
+it('allows the first send and three hourly resends, rejects the fifth and invalidates old codes', async () => {
   const { number } = await send();
   const first = await database
     .getRepository(OtpCode)
     .findOneByOrFail({ email: number });
-  for (let i = 1; i < 5; i++) {
+  for (let i = 1; i < 4; i++) {
     await database
       .getRepository(OtpCode)
       .update({ email: number }, { createdAt: new Date(Date.now() - 61000) });
@@ -259,10 +259,21 @@ it('enforces the hourly email limit and invalidates replaced codes', async () =>
     .post('/auth/otp/send')
     .send({ email: number })
     .expect(429);
+  expect(await database.getRepository(OtpCode).countBy({ email: number })).toBe(
+    4,
+  );
   expect(
     (await database.getRepository(OtpCode).findOneByOrFail({ id: first.id }))
       .consumedAt,
   ).not.toBeNull();
+  // Cửa sổ một giờ đã qua: người dùng được yêu cầu mã mới, không bị khóa vĩnh viễn.
+  await database
+    .getRepository(OtpCode)
+    .update({ email: number }, { createdAt: new Date(Date.now() - 3601000) });
+  await request(app.getHttpServer())
+    .post('/auth/otp/send')
+    .send({ email: number })
+    .expect(202);
 });
 
 it('rotates refresh tokens once under concurrency, rejects reuse and revokes on logout', async () => {
