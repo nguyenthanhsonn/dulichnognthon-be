@@ -8,10 +8,14 @@ import { AccessTokenGuard } from '../src/guards/access-token.guard.js';
 
 describe('Auth request validation and IP throttling', () => {
   let app: INestApplication;
-  const auth = { sendOtp: vi.fn(async () => ({ message: 'OTP sent' })) };
+  const auth = {
+    sendOtp: vi.fn(async () => ({ message: 'OTP sent' })),
+    resendOtp: vi.fn(async () => ({ message: 'OTP sent' })),
+  };
 
   beforeEach(async () => {
     auth.sendOtp.mockClear();
+    auth.resendOtp.mockClear();
     const module = await Test.createTestingModule({
       imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }])],
       controllers: [AuthController],
@@ -34,6 +38,14 @@ describe('Auth request validation and IP throttling', () => {
 
   it('rejects invalid emails, unexpected fields and non-string OTPs', async () => {
     await request(app.getHttpServer())
+      .post('/auth/otp/resend')
+      .send({ email: 'invalid' })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/auth/otp/resend')
+      .send({ email: 'voter@example.com', requestType: 'SEND' })
+      .expect(400);
+    await request(app.getHttpServer())
       .post('/auth/otp/send')
       .send({ email: 'not-an-email' })
       .expect(400);
@@ -54,6 +66,36 @@ describe('Auth request validation and IP throttling', () => {
       .send({ refreshToken: 'invalid' })
       .expect(400);
     expect(auth.sendOtp).not.toHaveBeenCalled();
+  });
+
+  it('routes normalized resend requests to the dedicated service method', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/auth/otp/resend')
+      .send({ email: '  Voter@Example.COM  ' })
+      .expect(202);
+    expect(auth.resendOtp).toHaveBeenCalledWith('voter@example.com');
+    expect(auth.sendOtp).not.toHaveBeenCalled();
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('shares the IP sending limit between send and resend endpoints', async () => {
+    for (let i = 0; i < 5; i++) {
+      await request(app.getHttpServer())
+        .post(i % 2 ? '/auth/otp/resend' : '/auth/otp/send')
+        .send({ email: `voter${i}@example.com` })
+        .expect(202);
+    }
+    await request(app.getHttpServer())
+      .post('/auth/otp/resend')
+      .send({ email: 'next@example.com' })
+      .expect(429);
+    await request(app.getHttpServer())
+      .post('/auth/otp/send')
+      .send({ email: 'next@example.com' })
+      .expect(429);
+    expect(
+      auth.sendOtp.mock.calls.length + auth.resendOtp.mock.calls.length,
+    ).toBe(5);
   });
 
   it('limits send requests by IP even for different email addresses', async () => {

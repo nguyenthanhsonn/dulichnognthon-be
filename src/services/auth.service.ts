@@ -7,6 +7,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import {
+  BadRequestException,
   HttpException,
   Inject,
   Injectable,
@@ -83,6 +84,17 @@ export class AuthService {
   }
 
   async sendOtp(email: string): Promise<SendOtpResponseDto> {
+    return this.issueOtp(email, 'SEND');
+  }
+
+  async resendOtp(email: string): Promise<SendOtpResponseDto> {
+    return this.issueOtp(email, 'RESEND');
+  }
+
+  private async issueOtp(
+    email: string,
+    requestType: 'SEND' | 'RESEND',
+  ): Promise<SendOtpResponseDto> {
     email = normalizeEmail(email) as string;
     // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
     this.mail.assertAvailable();
@@ -92,19 +104,32 @@ export class AuthService {
       async (tx) => {
         await this.emailLock(tx, email);
         const now = await this.now(tx);
-        const latest = await tx.findOne(OtpCode, {
-          where: { email },
+        const recent = await tx.find(OtpCode, {
+          where: {
+            email,
+            createdAt: MoreThanOrEqual(new Date(now.getTime() - 3600000)),
+          },
           order: { createdAt: 'DESC', id: 'DESC' },
         });
-        const recentCount = await tx.countBy(OtpCode, {
-          email,
-          createdAt: MoreThanOrEqual(new Date(now.getTime() - 3600000)),
-        });
+        const latest = recent[0];
+        const sends = recent.filter(
+          (challenge) => challenge.requestType === 'SEND',
+        ).length;
+        const resends = recent.filter(
+          (challenge) => challenge.requestType === 'RESEND',
+        ).length;
+        if (requestType === 'RESEND' && !sends) {
+          throw new BadRequestException(
+            'Bạn cần gửi OTP lần đầu trước khi yêu cầu gửi lại.',
+          );
+        }
         if (
           (latest &&
             now.getTime() - latest.createdAt.getTime() <
               this.settings.otpCooldownSeconds * 1000) ||
-          recentCount >= this.settings.otpMaxPerHour
+          recent.length >= this.settings.otpMaxPerHour ||
+          (requestType === 'SEND' && sends >= 1) ||
+          (requestType === 'RESEND' && resends >= 3)
         ) {
           throw new HttpException(
             'Bạn đã yêu cầu OTP quá nhiều lần. Vui lòng thử lại sau.',
@@ -124,6 +149,7 @@ export class AuthService {
           tx.create(OtpCode, {
             id,
             email,
+            requestType,
             userId: user?.id ?? null,
             codeHash: this.otpHash(id, email, otp),
             createdAt: now,

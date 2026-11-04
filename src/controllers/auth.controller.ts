@@ -12,6 +12,7 @@ import {
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from '../services/auth.service.js';
 import { SendOtpRequestDto } from '../services/dto/auth/send-otp.request.dto.js';
+import { ResendOtpRequestDto } from '../services/dto/auth/resend-otp.request.dto.js';
 import { VerifyOtpRequestDto } from '../services/dto/auth/verify-otp.request.dto.js';
 import { RefreshTokenRequestDto } from '../services/dto/auth/refresh-token.request.dto.js';
 import { authDto } from '../services/dto/auth/validation.js';
@@ -19,6 +20,16 @@ import {
   AccessTokenGuard,
   type AuthenticatedRequest,
 } from '../guards/access-token.guard.js';
+
+// Dùng chung bộ đếm IP cho send/resend để không nhân đôi quota khi đổi endpoint.
+const otpDeliveryThrottle = {
+  default: {
+    limit: 5,
+    ttl: 60000,
+    generateKey: (_context: unknown, tracker: string, name: string) =>
+      `auth:otp-delivery:${name}:${tracker}`,
+  },
+};
 
 @Controller('auth')
 @UseGuards(ThrottlerGuard)
@@ -28,9 +39,17 @@ export class AuthController {
   @Post('otp/send')
   @HttpCode(202)
   @Header('Cache-Control', 'no-store')
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle(otpDeliveryThrottle)
   sendOtp(@Body(authDto(SendOtpRequestDto)) body: SendOtpRequestDto) {
     return this.auth.sendOtp(body.email);
+  }
+
+  @Post('otp/resend')
+  @HttpCode(202)
+  @Header('Cache-Control', 'no-store')
+  @Throttle(otpDeliveryThrottle)
+  resendOtp(@Body(authDto(ResendOtpRequestDto)) body: ResendOtpRequestDto) {
+    return this.auth.resendOtp(body.email);
   }
 
   @Post('otp/verify')

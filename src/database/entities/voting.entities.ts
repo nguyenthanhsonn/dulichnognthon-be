@@ -88,6 +88,12 @@ export class User extends UpdatedEntity {
 @Index('otp_codes_expires_at_idx', ['expiresAt'])
 @Index('otp_codes_phone_created_at_idx', ['phone', 'createdAt'])
 @Index('otp_codes_email_created_at_idx', ['email', 'createdAt'])
+@Index('otp_codes_email_request_type_created_at_idx', [
+  'email',
+  'requestType',
+  'createdAt',
+])
+@Check('otp_codes_request_type_check', `request_type IN ('SEND', 'RESEND')`)
 @Check('otp_attempt_count_check', '"attempt_count" >= 0')
 @Check(
   'otp_codes_email_normalized_check',
@@ -95,6 +101,15 @@ export class User extends UpdatedEntity {
 )
 @Check('otp_codes_identity_check', 'email IS NOT NULL OR phone IS NOT NULL')
 export class OtpCode extends CreatedEntity {
+  @Column({
+    name: 'request_type',
+    type: 'varchar',
+    length: 6,
+    default: 'SEND',
+    comment:
+      'SEND: gửi đầu, tối đa 1 lần/email/giờ; RESEND: gửi lại, tối đa 3 lần/email/giờ.',
+  })
+  requestType: 'SEND' | 'RESEND';
   @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string | null;
   @Column({

@@ -86,9 +86,9 @@ afterAll(async () => {
   await client.end();
 });
 
-async function send(number = email()) {
+async function send(number = email(), path = '/auth/otp/send') {
   const response = await request(app.getHttpServer())
-    .post('/auth/otp/send')
+    .post(path)
     .send({ email: number })
     .expect(202);
   return { number, code: delivered.get(number)!, response };
@@ -120,7 +120,7 @@ it('normalizes email consistently for cooldown, verification and existing accoun
   await database
     .getRepository(OtpCode)
     .update({ email: address }, { createdAt: new Date(Date.now() - 61000) });
-  await send(address);
+  await send(address, '/auth/otp/resend');
   const second = await request(app.getHttpServer())
     .post('/auth/otp/verify')
     .send({ email: address, otp: delivered.get(address) })
@@ -248,7 +248,7 @@ it('allows the first send and three hourly resends, rejects the fifth and invali
       .getRepository(OtpCode)
       .update({ email: number }, { createdAt: new Date(Date.now() - 61000) });
     await request(app.getHttpServer())
-      .post('/auth/otp/send')
+      .post('/auth/otp/resend')
       .send({ email: number })
       .expect(202);
   }
@@ -256,9 +256,19 @@ it('allows the first send and three hourly resends, rejects the fifth and invali
     .getRepository(OtpCode)
     .update({ email: number }, { createdAt: new Date(Date.now() - 61000) });
   await request(app.getHttpServer())
-    .post('/auth/otp/send')
+    .post('/auth/otp/resend')
     .send({ email: number })
     .expect(429);
+  expect(
+    await database
+      .getRepository(OtpCode)
+      .countBy({ email: number, requestType: 'SEND' }),
+  ).toBe(1);
+  expect(
+    await database
+      .getRepository(OtpCode)
+      .countBy({ email: number, requestType: 'RESEND' }),
+  ).toBe(3);
   expect(await database.getRepository(OtpCode).countBy({ email: number })).toBe(
     4,
   );
@@ -274,6 +284,76 @@ it('allows the first send and three hourly resends, rejects the fifth and invali
     .post('/auth/otp/send')
     .send({ email: number })
     .expect(202);
+});
+
+it('rejects resend before an initial send and refuses a second initial send after cooldown', async () => {
+  const address = email();
+  await request(app.getHttpServer())
+    .post('/auth/otp/resend')
+    .send({ email: address })
+    .expect(400);
+  expect(
+    await database.getRepository(OtpCode).countBy({ email: address }),
+  ).toBe(0);
+  await send(address);
+  await request(app.getHttpServer())
+    .post('/auth/otp/resend')
+    .send({ email: address })
+    .expect(429);
+  await database
+    .getRepository(OtpCode)
+    .update({ email: address }, { createdAt: new Date(Date.now() - 61000) });
+  await request(app.getHttpServer())
+    .post('/auth/otp/send')
+    .send({ email: address })
+    .expect(429);
+  expect(
+    await database.getRepository(OtpCode).countBy({ email: address }),
+  ).toBe(1);
+  await send(address, '/auth/otp/resend');
+});
+
+it('allows only one final resend under concurrent requests and resets attempts on the new code', async () => {
+  const { number } = await send();
+  for (let i = 0; i < 2; i++) {
+    await database
+      .getRepository(OtpCode)
+      .update({ email: number }, { createdAt: new Date(Date.now() - 61000) });
+    await send(number, '/auth/otp/resend');
+  }
+  const previous = await database
+    .getRepository(OtpCode)
+    .findOneOrFail({ where: { email: number }, order: { createdAt: 'DESC' } });
+  await database
+    .getRepository(OtpCode)
+    .update(previous.id, { attemptCount: 3, consumedAt: new Date() });
+  await database
+    .getRepository(OtpCode)
+    .update({ email: number }, { createdAt: new Date(Date.now() - 61000) });
+  const responses = await Promise.all(
+    [1, 2].map(() =>
+      request(app.getHttpServer())
+        .post('/auth/otp/resend')
+        .send({ email: number }),
+    ),
+  );
+  expect(
+    responses.map((result) => result.status).sort((a, b) => a - b),
+  ).toEqual([202, 429]);
+  expect(
+    await database
+      .getRepository(OtpCode)
+      .countBy({ email: number, requestType: 'RESEND' }),
+  ).toBe(3);
+  const newest = await database
+    .getRepository(OtpCode)
+    .findOneOrFail({ where: { email: number }, order: { createdAt: 'DESC' } });
+  expect(newest.attemptCount).toBe(0);
+  expect(newest.id).not.toBe(previous.id);
+  await request(app.getHttpServer())
+    .post('/auth/otp/verify')
+    .send({ email: number, otp: delivered.get(number) })
+    .expect(200);
 });
 
 it('rotates refresh tokens once under concurrency, rejects reuse and revokes on logout', async () => {

@@ -135,6 +135,7 @@ dấu chấm hay phần `+alias` của email. OTP phải là chuỗi 6 chữ s�
 | Method | Endpoint           | Request                                            | Kết quả                             |
 | ------ | ------------------ | -------------------------------------------------- | ----------------------------------- |
 | POST   | `/auth/otp/send`   | `{ "email": "user@example.com" }`                  | 202: message, expiresIn, retryAfter |
+| POST   | `/auth/otp/resend` | `{ "email": "user@example.com" }`                  | 202: message, expiresIn, retryAfter |
 | POST   | `/auth/otp/verify` | `{ "email": "user@example.com", "otp": "012345" }` | 200: token pair và user             |
 | POST   | `/auth/refresh`    | `{ "refreshToken": "..." }`                        | 200: token pair mới và user         |
 | POST   | `/auth/logout`     | `{ "refreshToken": "..." }`                        | 204                                 |
@@ -180,3 +181,15 @@ Database test dùng schema tạm riêng, bao gồm nâng cấp từ schema phone
 để kiểm tra bảo toàn user, OTP, session và phiếu bình chọn. Không ghi dữ liệu test
 vào bảng public, không gửi email thật. Việc gửi và nhận thư thực tế cần credential
 OAuth Gmail API và một lần thử gửi nhận thực tế.
+
+## Gửi đầu và gửi lại tách riêng
+
+`/auth/otp/send` tối đa 1 lần/email trong cửa sổ trượt một giờ.
+`/auth/otp/resend` tối đa 3 lần/email/giờ và yêu cầu có SEND trong cùng cửa sổ.
+Chưa gửi đầu trả 400; gọi send lần hai hoặc hết lượt resend trả 429. Cả hai cách
+lần gửi trước ít nhất 60 giây và dùng chung 5 request/IP/phút. Tổng không vượt
+`OTP_MAX_SENDS_PER_HOUR` (mặc định 4). Mỗi mã vẫn khóa sau 3 lần nhập sai.
+
+Migration `OtpResend1793800000000` thêm `otp_codes.request_type` (SEND/RESEND),
+check constraint và index email/loại/thời gian. Challenge cũ được coi là SEND.
+Cần chạy `npm run build` và `npm run db:migrate` trước khi chạy bản mới.

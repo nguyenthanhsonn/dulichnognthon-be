@@ -1,0 +1,581 @@
+{
+  "info": {
+    "name": "Du lịch Nông thôn — Backend API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "13 routes đối chiếu source ngày 04/11/2026. Điền biến trước khi dùng. Response là ví dụ; không có token/credential thật."
+  },
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": ""
+    },
+    {
+      "key": "otp",
+      "value": ""
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "destinationId",
+      "value": ""
+    },
+    {
+      "key": "slug",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Kiểm tra ứng dụng",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{BASE_URL}}/"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": "{{BASE_URL}}/"
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "text/html; charset=utf-8"
+            }
+          ],
+          "body": "Hello World!"
+        }
+      ]
+    },
+    {
+      "name": "Gửi OTP email",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{BASE_URL}}/auth/otp/send",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [
+        {
+          "name": "202 Accepted",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{BASE_URL}}/auth/otp/send",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "code": 202,
+          "status": "Accepted",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"message\": \"OTP đã được gửi.\",\n  \"expiresIn\": 300,\n  \"retryAfter\": 60\n}"
+        }
+      ]
+    },
+    {
+      "name": "Gửi lại OTP email",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{BASE_URL}}/auth/otp/resend",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [
+        {
+          "name": "202 Accepted",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{BASE_URL}}/auth/otp/resend",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "code": 202,
+          "status": "Accepted",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"message\": \"OTP đã được gửi.\",\n  \"expiresIn\": 300,\n  \"retryAfter\": 60\n}"
+        }
+      ]
+    },
+    {
+      "name": "Xác thực OTP / Đăng nhập",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{BASE_URL}}/auth/otp/verify",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"{{email}}\",\n  \"otp\": \"{{otp}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{BASE_URL}}/auth/otp/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"otp\": \"{{otp}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"accessToken\": \"<JWT_ACCESS_TOKEN>\",\n  \"refreshToken\": \"<SESSION_UUID>.<RANDOM_SECRET>\",\n  \"tokenType\": \"Bearer\",\n  \"expiresIn\": 900,\n  \"refreshExpiresIn\": 2592000,\n  \"user\": {\n    \"id\": \"f4d3504c-0f32-4a3c-84c8-8e9e31e4c6c5\",\n    \"email\": \"user@example.com\",\n    \"createdAt\": \"2026-11-04T08:00:00.000Z\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Refresh token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{BASE_URL}}/auth/refresh",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{BASE_URL}}/auth/refresh",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"accessToken\": \"<NEW_JWT_ACCESS_TOKEN>\",\n  \"refreshToken\": \"<SESSION_UUID>.<NEW_RANDOM_SECRET>\",\n  \"tokenType\": \"Bearer\",\n  \"expiresIn\": 900,\n  \"refreshExpiresIn\": 2500000,\n  \"user\": {\n    \"id\": \"f4d3504c-0f32-4a3c-84c8-8e9e31e4c6c5\",\n    \"email\": \"user@example.com\",\n    \"createdAt\": \"2026-11-04T08:00:00.000Z\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Đăng xuất",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{BASE_URL}}/auth/logout",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [
+        {
+          "name": "204 No Content",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{BASE_URL}}/auth/logout",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "code": 204,
+          "status": "No Content",
+          "header": [],
+          "body": ""
+        }
+      ]
+    },
+    {
+      "name": "Thông tin user",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": "{{BASE_URL}}/auth/me"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{BASE_URL}}/auth/me"
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"id\": \"f4d3504c-0f32-4a3c-84c8-8e9e31e4c6c5\",\n  \"email\": \"user@example.com\",\n  \"createdAt\": \"2026-11-04T08:00:00.000Z\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Danh sách điểm đến",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{BASE_URL}}/destinations?page=1&limit=12&keyword=Lê%20Phúc"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": "{{BASE_URL}}/destinations?page=1&limit=12&keyword=Lê%20Phúc"
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"items\": [\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000025\",\n      \"title\": \"Điểm du lịch “Vườn hồng Lê Phúc”\",\n      \"slug\": \"dlnt2026-025-diem-du-lich-vuon-hong-le-phuc\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Đà Lạt\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 25\n    }\n  ],\n  \"total\": 1,\n  \"page\": 1,\n  \"limit\": 12,\n  \"totalPages\": 1\n}"
+        }
+      ]
+    },
+    {
+      "name": "Chi tiết điểm đến",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{BASE_URL}}/destinations/{{slug}}"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": "{{BASE_URL}}/destinations/{{slug}}"
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"id\": \"ba05ed6c-cf82-4686-a02f-000000000025\",\n  \"title\": \"Điểm du lịch “Vườn hồng Lê Phúc”\",\n  \"slug\": \"dlnt2026-025-diem-du-lich-vuon-hong-le-phuc\",\n  \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n  \"province\": \"Đà Lạt\",\n  \"thumbnailUrl\": null,\n  \"displayOrder\": 25,\n  \"detail\": \"**Mã hồ sơ:** DLNT2026-025\\n\\n## Nội dung hồ sơ\\n\\nNội dung chi tiết bài dự thi...\",\n  \"media\": [\n    {\n      \"id\": \"d1202026-0000-4000-8000-000000000025\",\n      \"mediaType\": \"VIDEO\",\n      \"mediaUrl\": \"https://vimeo.com/1243133653\",\n      \"caption\": \"Video bài dự thi DLNT2026-025\",\n      \"displayOrder\": 1\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Bình chọn",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{BASE_URL}}/votes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"destinationId\": \"{{destinationId}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "response": [
+        {
+          "name": "201 Created",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{BASE_URL}}/votes",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destinationId\": \"{{destinationId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "code": 201,
+          "status": "Created",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"id\": \"b13db255-c8db-4c29-b514-9b96545b9a9b\",\n  \"destinationId\": \"ba05ed6c-cf82-4686-a02f-000000000025\",\n  \"createdAt\": \"2026-11-05T03:15:00.000Z\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Lượt bình chọn của tôi",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": "{{BASE_URL}}/votes/me"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": "{{BASE_URL}}/votes/me"
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"items\": [\n    {\n      \"id\": \"b13db255-c8db-4c29-b514-9b96545b9a9b\",\n      \"destinationId\": \"ba05ed6c-cf82-4686-a02f-000000000025\",\n      \"createdAt\": \"2026-11-05T03:15:00.000Z\",\n      \"destination\": {\n        \"id\": \"ba05ed6c-cf82-4686-a02f-000000000025\",\n        \"title\": \"Điểm du lịch “Vườn hồng Lê Phúc”\",\n        \"slug\": \"dlnt2026-025-diem-du-lich-vuon-hong-le-phuc\",\n        \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n        \"province\": \"Đà Lạt\",\n        \"thumbnailUrl\": null,\n        \"displayOrder\": 25\n      }\n    }\n  ],\n  \"usedVotes\": 1,\n  \"remainingVotes\": 2,\n  \"maxVotes\": 3\n}"
+        }
+      ]
+    },
+    {
+      "name": "Top 3 điểm đến",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{BASE_URL}}/rankings/top"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": "{{BASE_URL}}/rankings/top"
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"items\": [\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000025\",\n      \"title\": \"Điểm du lịch “Vườn hồng Lê Phúc”\",\n      \"slug\": \"dlnt2026-025-diem-du-lich-vuon-hong-le-phuc\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Đà Lạt\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 25,\n      \"voteCount\": 60,\n      \"rank\": 1\n    },\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000001\",\n      \"title\": \"Làng văn hóa du lịch cộng đồng thôn Bản Khun\",\n      \"slug\": \"dlnt2026-001-lang-van-hoa-du-lich-cong-dong-thon-ban-khun-xa-bang-lang-tinh-tuyen-quang\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Tuyên Quang\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 1,\n      \"voteCount\": 40,\n      \"rank\": 2\n    },\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000007\",\n      \"title\": \"Khu bảo tồn làng nhà sàn dân tộc sinh thái Thái Hải\",\n      \"slug\": \"dlnt2026-007-khu-bao-ton-lang-nha-san-dan-toc-sinh-thai-thai-hai\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Thái Nguyên\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 7,\n      \"voteCount\": 20,\n      \"rank\": 3\n    }\n  ],\n  \"totalVotes\": 120,\n  \"totalDestinations\": 4\n}"
+        }
+      ]
+    },
+    {
+      "name": "Toàn bộ bảng xếp hạng",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{BASE_URL}}/rankings"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": "{{BASE_URL}}/rankings"
+          },
+          "code": 200,
+          "status": "OK",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"items\": [\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000025\",\n      \"title\": \"Điểm du lịch “Vườn hồng Lê Phúc”\",\n      \"slug\": \"dlnt2026-025-diem-du-lich-vuon-hong-le-phuc\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Đà Lạt\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 25,\n      \"voteCount\": 60,\n      \"rank\": 1\n    },\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000001\",\n      \"title\": \"Làng văn hóa du lịch cộng đồng thôn Bản Khun\",\n      \"slug\": \"dlnt2026-001-lang-van-hoa-du-lich-cong-dong-thon-ban-khun-xa-bang-lang-tinh-tuyen-quang\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Tuyên Quang\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 1,\n      \"voteCount\": 40,\n      \"rank\": 2\n    },\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000007\",\n      \"title\": \"Khu bảo tồn làng nhà sàn dân tộc sinh thái Thái Hải\",\n      \"slug\": \"dlnt2026-007-khu-bao-ton-lang-nha-san-dan-toc-sinh-thai-thai-hai\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Thái Nguyên\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 7,\n      \"voteCount\": 20,\n      \"rank\": 3\n    },\n    {\n      \"id\": \"ba05ed6c-cf82-4686-a02f-000000000035\",\n      \"title\": \"Hành trình trải nghiệm Sen Quê Bác\",\n      \"slug\": \"dlnt2026-035-hanh-trinh-trai-nghiem-sen-que-bac\",\n      \"brief\": \"Nội dung mô tả ngắn của điểm đến.\",\n      \"province\": \"Nghệ An\",\n      \"thumbnailUrl\": null,\n      \"displayOrder\": 35,\n      \"voteCount\": 0,\n      \"rank\": 4\n    }\n  ],\n  \"totalVotes\": 120,\n  \"totalDestinations\": 4\n}"
+        }
+      ]
+    }
+  ]
+}
