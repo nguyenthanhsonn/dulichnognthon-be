@@ -380,19 +380,19 @@ Content-Type: application/json
 
 - Mỗi tài khoản được bình chọn cho **không giới hạn số điểm đến khác nhau**. Mỗi điểm đến chỉ được bình chọn **một lần/tài khoản trong toàn hội thi**, không reset theo ngày.
 - Không có API hủy, sửa hoặc chuyển phiếu.
-- Điểm đến phải tồn tại và active; backend kiểm tra thời gian bằng đồng hồ PostgreSQL sau khi lấy khóa.
-- Lịch chỉ mở khi cấu hình đủ `VOTING_START_AT` và `VOTING_END_AT`; source chấp nhận `start <= now <= end`. Không tự suy đoán giờ mở/đóng từ ngày 05–20/11/2026.
-- Thiếu lịch chính thức thì đóng. Thời gian mở/đóng chưa được trả qua một API công khai riêng.
-- Transaction và khóa user bảo vệ giới hạn khi có request đồng thời.
+- Điểm đến phải tồn tại và active; thời điểm tạo phiếu được ghi bằng đồng hồ PostgreSQL sau khi lấy khóa.
+- Lịch mở/đóng do FE xử lý theo giờ Việt Nam (UTC+7): mở **00:00 ngày 07/11/2026**, đóng sau hết phút **23:59 ngày 20/11/2026**. FE ẩn/khóa nút ngoài khung giờ; backend không kiểm tra thời gian và vẫn nhận request trực tiếp ngoài lịch.
+- Backend không dùng biến môi trường lịch bình chọn; không có API riêng trả lịch.
+- Transaction, khóa user và ràng buộc UNIQUE ngăn bình chọn trùng khi có request đồng thời.
 - Response chỉ trả phiếu vừa tạo; gọi lại `/votes/me` để lấy số lượt, `/rankings/top` và `/rankings` để lấy thứ hạng mới.
 
-| HTTP | Trường hợp                                                            |
-| ---- | --------------------------------------------------------------------- |
-| 400  | Sai UUID/body hoặc điểm đến không nhận bình chọn                      |
-| 401  | Thiếu/sai token, session không hợp lệ, user bị chặn ở guard           |
-| 403  | Hội thi chưa mở/đã đóng hoặc user bị chặn phát hiện trong transaction |
-| 404  | Không tìm thấy điểm đến                                               |
-| 409  | Tài khoản đã bình chọn cho điểm đến này                               |
+| HTTP | Trường hợp                                                  |
+| ---- | ----------------------------------------------------------- |
+| 400  | Sai UUID/body hoặc điểm đến không nhận bình chọn            |
+| 401  | Thiếu/sai token, session không hợp lệ, user bị chặn ở guard |
+| 403  | User bị chặn phát hiện trong transaction                    |
+| 404  | Không tìm thấy điểm đến                                     |
+| 409  | Tài khoản đã bình chọn cho điểm đến này                     |
 
 Bình chọn trùng trả 409 với message `Bạn đã bình chọn cho điểm đến này.`. Không còn lỗi hết tổng lượt bình chọn.
 
@@ -678,3 +678,20 @@ Tìm kiếm hỗ trợ cả mã bài thi và tên ngắn.
 
 Nguồn mã/tên: [Danh sách hội thi](https://docs.google.com/document/d/1o8lasFe230XrkehvBuwN551J5wq1jeWhRL5itVbUJLA/edit).
 Đã đủ 35 bài: bài 8/9 được người dùng xác nhận mã `DLNT08`, `DLNT09` và giữ tên hiện tại. Mã bài 13 là `DLNT013`, giữ đúng tài liệu.
+
+### FE xử lý thời gian bình chọn
+
+Lịch theo giờ Việt Nam (UTC+7), bao gồm hết phút 23:59 ngày 20/11:
+
+```ts
+const startAt = new Date('2026-11-07T00:00:00+07:00').getTime();
+const endExclusive = new Date('2026-11-21T00:00:00+07:00').getTime();
+const now = Date.now();
+const isVotingOpen = now >= startAt && now < endExclusive;
+```
+
+FE cập nhật trạng thái khi trang đang mở và kiểm tra lại trước khi gửi vote.
+Ngoài lịch, ẩn/khóa nút Vote và hiển thị “Chưa mở bình chọn” hoặc
+“Đã kết thúc bình chọn”. Backend không kiểm tra lịch và không trả 403 do thời gian;
+request trực tiếp ngoài khung giờ vẫn được xử lý. Backend tiếp tục kiểm tra
+đăng nhập, trạng thái tài khoản/điểm đến và mỗi điểm chỉ một phiếu/tài khoản.

@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
-import { ConfigService } from '@nestjs/config';
 import pg from 'pg';
 import { DataSource } from 'typeorm';
 import { createDatabaseOptions } from '../src/database/database.config.js';
@@ -20,11 +19,6 @@ const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
 let dataSource: DataSource;
 let votes: VotesRepository;
 let schemaCreated = false;
-const openSchedule = {
-  VOTING_START_AT: '2000-01-01T00:00:00Z',
-  VOTING_END_AT: '2999-01-01T00:00:00Z',
-};
-
 beforeAll(async () => {
   await client.connect();
   await client.query(`CREATE SCHEMA "${schema}"`);
@@ -32,14 +26,10 @@ beforeAll(async () => {
   await client.query(`SET search_path TO "${schema}"`);
   const url = new URL(process.env.DATABASE_URL!);
   url.searchParams.set('schema', schema);
-  const config = new ConfigService({
-    DATABASE_URL: url.toString(),
-    ...openSchedule,
-  });
   dataSource = new DataSource(createDatabaseOptions(url.toString()));
   await dataSource.initialize();
   await dataSource.runMigrations();
-  votes = new VotesRepository(dataSource, config);
+  votes = new VotesRepository(dataSource);
 });
 
 afterAll(async () => {
@@ -133,24 +123,14 @@ it.each([
   },
 );
 
-it('closes voting with no schedule and after the deadline', async () => {
+it('accepts voting without backend schedule configuration', async () => {
   const {
     user,
     destinations: [destination],
   } = await fixtures();
-  for (const config of [
-    {},
-    {
-      VOTING_START_AT: '2000-01-01T00:00:00Z',
-      VOTING_END_AT: '2001-01-01T00:00:00Z',
-    },
-  ]) {
-    const closed = new VotesRepository(dataSource, new ConfigService(config));
-    expect(await closed.castVote(user.id, destination.id)).toEqual({
-      accepted: false,
-      reason: 'VOTING_CLOSED',
-    });
-  }
+  expect(await votes.castVote(user.id, destination.id)).toMatchObject({
+    accepted: true,
+  });
 });
 
 it('prevents changing/deleting votes and rejects invalid media types', async () => {

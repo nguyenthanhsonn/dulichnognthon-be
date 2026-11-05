@@ -348,13 +348,13 @@ it.each([
   },
   { VOTING_START_AT: '', VOTING_END_AT: '' },
 ])(
-  'rejects voting before opening, after closing or without official times (%j)',
+  'ignores legacy backend schedules because the frontend controls voting times (%j)',
   async (schedule) => {
     await app.close();
     app = await createApp(schedule);
     const { token } = await authenticatedUser();
     const target = await destination();
-    await postVote(token, target.id).expect(403);
+    await postVote(token, target.id).expect(201);
   },
 );
 

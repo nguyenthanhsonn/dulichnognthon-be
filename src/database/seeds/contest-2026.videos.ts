@@ -1,7 +1,7 @@
 // Số thứ tự là số bài thi trong tài liệu gốc, không phải thứ tự truy vấn database.
 export const contestVideoLinks = [
   'https://vimeo.com/1243184146/c3ed6d3e14?fl=ip&fe=ec',
-  'https://vimeo.com/1242864293?fl=ip&fe=ec',
+  'https://vimeo.com/1243507871/716e9bdd33?fl=ip&fe=ec',
   'https://vimeo.com/1242865475?fl=ip&fe=ec',
   'https://vimeo.com/1242888337?fl=ip&fe=ec',
   'https://vimeo.com/1242866144?fl=ip&fe=ec',

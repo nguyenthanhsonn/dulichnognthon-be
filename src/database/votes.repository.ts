@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import {
   User,
@@ -7,14 +6,12 @@ import {
   Vote,
   VoteAttempt,
 } from './entities/voting.entities.js';
-import { getVotingSettings } from './voting.config.js';
 
 type Rejection =
   | 'USER_NOT_FOUND'
   | 'USER_BLOCKED'
   | 'DESTINATION_NOT_FOUND'
   | 'DESTINATION_INACTIVE'
-  | 'VOTING_CLOSED'
   | 'ALREADY_VOTED';
 
 export type VoteOutcome =
@@ -29,14 +26,7 @@ export interface VoteContext {
 /** Điểm ghi vote dùng chung; lớp xác thực phải lấy userId từ phiên đã xác thực. */
 @Injectable()
 export class VotesRepository {
-  private readonly settings: ReturnType<typeof getVotingSettings>;
-
-  constructor(
-    @Inject(DataSource) private readonly dataSource: DataSource,
-    @Inject(ConfigService) config: ConfigService,
-  ) {
-    this.settings = getVotingSettings(config);
-  }
+  constructor(@Inject(DataSource) private readonly dataSource: DataSource) {}
 
   async castVote(
     userId: string,
@@ -78,26 +68,16 @@ export class VotesRepository {
         if (!destination) return reject('DESTINATION_NOT_FOUND');
         if (!destination.isActive) return reject('DESTINATION_INACTIVE');
 
-        // Dùng đồng hồ DB sau khi đã nhận khóa, tránh request chờ quá giờ đóng.
+        // FE quản lý lịch mở/đóng; backend ghi thời điểm thực sau khi nhận khóa.
         const [clock] = await tx.query<{ now: Date }[]>(
           'SELECT clock_timestamp() AS now',
         );
-        const { startsAt, endsAt } = this.settings;
-        if (
-          !startsAt ||
-          !endsAt ||
-          clock.now < startsAt ||
-          clock.now > endsAt
-        ) {
-          return reject('VOTING_CLOSED');
-        }
         const existing = await tx.findOneBy(Vote, { userId, destinationId });
         if (existing) return reject('ALREADY_VOTED');
 
         const vote = await tx.save(
           Vote,
-          // CURRENT_TIMESTAMP mặc định là lúc bắt đầu transaction, có thể trước
-          // giờ mở khi request phải chờ khóa; ghi đúng thời điểm đã kiểm tra.
+          // Ghi thời điểm thực thay vì thời điểm bắt đầu transaction trước khi chờ khóa.
           tx.create(Vote, { userId, destinationId, createdAt: clock.now }),
         );
         // Vote và audit thành công luôn commit hoặc rollback cùng nhau.

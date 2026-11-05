@@ -21,16 +21,10 @@ hoặc media đã có. Ảnh dùng placeholder; dữ liệu demo cần được 
 chính thức trước khi công bố. Chạy lại seed không tạo bản ghi trùng. Không có seed
 user, phiếu bình chọn hoặc token; không tạo cách đăng nhập bỏ qua xác thực.
 
-```dotenv
-VOTING_START_AT=
-VOTING_END_AT=
-```
-
-Hai timestamp phải có timezone rõ ràng (`+07:00` hoặc `Z`), start < end. Chỉ điền
-giờ chính thức được Ban tổ chức xác nhận cho thời gian 05–20/11/2026; code không
-tự suy đoán giờ mở/đóng. Để trống cả hai biến thì vote bị từ chối 403. Cấu hình
-thiếu một mốc hoặc timestamp không hợp lệ sẽ làm startup báo lỗi. Khởi động lại
-backend sau khi thay lịch. Hai đầu mốc start/end được tính trong khoảng cho phép.
+Lịch bình chọn do frontend xử lý theo giờ Việt Nam (UTC+7): mở lúc 00:00 ngày
+07/11/2026 và đóng sau hết phút 23:59 ngày 20/11/2026. Frontend ẩn/khóa nút
+bình chọn ngoài thời gian này. Backend không kiểm tra lịch và vẫn nhận request
+bình chọn trực tiếp ngoài khung giờ; không dùng biến môi trường lịch bình chọn.
 
 Không giới hạn tổng số điểm đến mỗi tài khoản được bình chọn; mỗi điểm đến chỉ
 được vote một lần/tài khoản trong toàn hội thi. Các API đọc vẫn hoạt

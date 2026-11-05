@@ -39,8 +39,6 @@ export class VotingService {
           throw new NotFoundException('Không tìm thấy điểm đến.');
         case 'DESTINATION_INACTIVE':
           throw new BadRequestException('Điểm đến không nhận bình chọn.');
-        case 'VOTING_CLOSED':
-          throw new ForbiddenException('Bình chọn chưa mở hoặc đã kết thúc.');
         case 'ALREADY_VOTED':
           throw new ConflictException('Bạn đã bình chọn cho điểm đến này.');
       }

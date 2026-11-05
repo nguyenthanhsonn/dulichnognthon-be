@@ -17,8 +17,6 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
-      # Thêm VOTING_START_AT/VOTING_END_AT thủ công khi có lịch chính thức.
-      # Chưa có hai biến này thì bình chọn đóng.
       - key: OTP_EXPIRES_SECONDS
         value: '300'
       - key: OTP_MAX_ATTEMPTS

@@ -72,8 +72,8 @@ Trigger cập nhật `updated_at` kể cả khi sửa dữ liệu bằng SQL tr�
 
 ## Cấu hình hội thi và kiểm thử
 
-`VOTING_START_AT`/`VOTING_END_AT` để trống nghĩa là bình chọn đóng. Điền lịch chính
-thức bằng ISO 8601 kèm timezone. Đã bỏ biến hạn mức tổng `MAX_VOTES_PER_USER`.
+Lịch mở/đóng bình chọn do frontend quản lý; backend không kiểm tra thời gian.
+Đã bỏ biến lịch và hạn mức tổng `MAX_VOTES_PER_USER`.
 `OTP_EXPIRES_SECONDS=300`, `OTP_MAX_ATTEMPTS=3` là cấu hình cho
 lớp xác thực OTP đã triển khai; xem [hướng dẫn Auth](../modules/AUTH.md) để biết API, rotation và rate limiting.
 
