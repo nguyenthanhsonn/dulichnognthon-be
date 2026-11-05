@@ -174,6 +174,16 @@ it('lists only active destinations with stable pagination and case-insensitive l
   expect(page.body.items.map((item: Destination) => item.id)).toEqual([
     second.id,
   ]);
+  const beyondLastPage = await request(app.getHttpServer())
+    .get('/destinations?page=3&limit=1')
+    .expect(200);
+  expect(beyondLastPage.body).toEqual({
+    items: [],
+    total: 2,
+    totalPages: 2,
+    page: 3,
+    limit: 1,
+  });
   const search = await request(app.getHttpServer())
     .get('/destinations')
     .query({ keyword: 'alpha' })

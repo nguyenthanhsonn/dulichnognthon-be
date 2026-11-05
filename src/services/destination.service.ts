@@ -35,12 +35,31 @@ export class DestinationService {
         ),
       );
     }
-    const [destinations, total] = await query
+    // Lấy tổng trên tập đã lọc trước khi phân trang, trong cùng lượt đọc.
+    const { entities: destinations, raw } = await query
+      .select([
+        'destination.id',
+        'destination.title',
+        'destination.contestCode',
+        'destination.shortTitle',
+        'destination.slug',
+        'destination.brief',
+        'destination.province',
+        'destination.thumbnailUrl',
+        'destination.displayOrder',
+      ])
+      .addSelect('COUNT(*) OVER ()', 'total_count')
       .orderBy('destination.displayOrder', 'ASC')
       .addOrderBy('destination.id', 'ASC')
       .skip((page - 1) * limit)
       .take(limit)
-      .getManyAndCount();
+      .getRawAndEntities<{ total_count: string }>();
+    // Trang vượt phạm vi không có dòng để mang theo tổng.
+    const total = raw.length
+      ? Number(raw[0].total_count)
+      : page === 1
+        ? 0
+        : await query.getCount();
     return {
       items: destinations.map(destinationSummary),
       total,
@@ -51,11 +70,18 @@ export class DestinationService {
   }
 
   async detail(slug: string): Promise<DestinationDetailDto> {
-    const destination = await this.database.getRepository(Destination).findOne({
-      where: { slug, isActive: true },
-      relations: { media: true },
-      order: { media: { displayOrder: 'ASC', id: 'ASC' } },
-    });
+    // Slug unique nên không cần LIMIT trên JOIN một-nhiều.
+    const destination = await this.database
+      .getRepository(Destination)
+      .createQueryBuilder('destination')
+      .leftJoinAndSelect('destination.media', 'media')
+      .where('destination.slug = :slug AND destination.isActive = :active', {
+        slug,
+        active: true,
+      })
+      .orderBy('media.displayOrder', 'ASC')
+      .addOrderBy('media.id', 'ASC')
+      .getOne();
     if (!destination) throw new NotFoundException('Không tìm thấy điểm đến.');
     return Object.assign(destinationSummary(destination), {
       detail: destination.detail,
