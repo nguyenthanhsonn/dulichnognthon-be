@@ -13,26 +13,27 @@ Tài liệu mô tả hành vi đã có trong code, không khẳng định phiên
 - ID là chuỗi UUID, ngày giờ là ISO 8601 có timezone, các thời hạn tính bằng **giây**.
 - Thành công trả object trực tiếp, không bọc `{ success, data }`. Riêng `/` trả text, logout không có body.
 - Field ngoài DTO bị từ chối 400 ở body Auth/Voting và query Destination. Không gửi `userId` từ client.
-- Auth, Voting, Ranking dùng `Cache-Control: no-store`.
+- Auth, Voting và Ranking JSON dùng `Cache-Control: no-store`; SSE dùng `no-cache, no-transform`.
 - Header `X-Request-Id` dùng khi đối chiếu log lỗi.
 
 ## Danh sách endpoint
 
-| Method | Endpoint              | Xác thực                 | Thành công | Chức năng                       |
-| ------ | --------------------- | ------------------------ | ---------- | ------------------------------- |
-| GET    | `/`                   | Không                    | 200, text  | Kiểm tra ứng dụng               |
-| POST   | `/auth/otp/send`      | Không                    | 202        | Gửi OTP lần đầu                 |
-| POST   | `/auth/otp/resend`    | Không                    | 202        | Gửi lại OTP email               |
-| POST   | `/auth/otp/verify`    | Không                    | 200        | Xác thực, đăng nhập/tạo user    |
-| POST   | `/auth/refresh`       | Refresh Token trong body | 200        | Đổi cặp token                   |
-| POST   | `/auth/logout`        | Refresh Token trong body | 204        | Thu hồi session                 |
-| GET    | `/auth/me`            | Bearer                   | 200        | Thông tin user                  |
-| GET    | `/destinations`       | Không                    | 200        | Danh sách, phân trang, tìm kiếm |
-| GET    | `/destinations/:slug` | Không                    | 200        | Chi tiết và ảnh/video           |
-| POST   | `/votes`              | Bearer                   | 201        | Bình chọn                       |
-| GET    | `/votes/me`           | Bearer                   | 200        | Danh sách điểm đã bình chọn     |
-| GET    | `/rankings/top`       | Không                    | 200        | Top 3 hiện tại                  |
-| GET    | `/rankings`           | Không                    | 200        | Toàn bộ bảng xếp hạng           |
+| Method | Endpoint              | Xác thực                 | Thành công | Chức năng                         |
+| ------ | --------------------- | ------------------------ | ---------- | --------------------------------- |
+| GET    | `/`                   | Không                    | 200, text  | Kiểm tra ứng dụng                 |
+| POST   | `/auth/otp/send`      | Không                    | 202        | Gửi OTP lần đầu                   |
+| POST   | `/auth/otp/resend`    | Không                    | 202        | Gửi lại OTP email                 |
+| POST   | `/auth/otp/verify`    | Không                    | 200        | Xác thực, đăng nhập/tạo user      |
+| POST   | `/auth/refresh`       | Refresh Token trong body | 200        | Đổi cặp token                     |
+| POST   | `/auth/logout`        | Refresh Token trong body | 204        | Thu hồi session                   |
+| GET    | `/auth/me`            | Bearer                   | 200        | Thông tin user                    |
+| GET    | `/destinations`       | Không                    | 200        | Danh sách, phân trang, tìm kiếm   |
+| GET    | `/destinations/:slug` | Không                    | 200        | Chi tiết và ảnh/video             |
+| POST   | `/votes`              | Bearer                   | 201        | Bình chọn                         |
+| GET    | `/votes/me`           | Bearer                   | 200        | Danh sách điểm đã bình chọn       |
+| GET    | `/rankings/top`       | Không                    | 200        | Top 3 hiện tại                    |
+| GET    | `/rankings`           | Không                    | 200        | Toàn bộ bảng xếp hạng             |
+| GET    | `/rankings/stream`    | Không                    | 200, SSE   | Đẩy snapshot ranking khi thay đổi |
 
 ## Chi tiết request và response
 
@@ -529,7 +530,7 @@ Không cần đăng nhập, không có body, phân trang hoặc bộ lọc. Ví 
 - Không có điểm active: `items: []`, `totalVotes: 0`, `totalDestinations: 0`.
 - Response không có media/video; mở chi tiết điểm đến để lấy.
 
-**Cập nhật trên giao diện:** frontend polling 5 giây/lần (hoặc 5–10 giây tùy nhu cầu). Sau khi bình chọn thành công, refetch cả Top 3, bảng đầy đủ và `/votes/me` ngay. Chưa có SSE/WebSocket hoặc push realtime; frontend chỉ thấy thay đổi khi gọi API mới.
+**Cập nhật trên giao diện:** kết nối `GET /rankings/stream` qua EventSource và nghe event `rankings`. Nhận snapshot ban đầu, cập nhật sau vote commit và kiểm tra DB mỗi 2 giây khi có người xem. Hai API JSON dùng chung cache nội bộ 1 giây, xóa ngay sau vote thành công. Vẫn có thể polling 5–10 giây nếu không dùng SSE. Sau vote, refetch `/votes/me`. Xem [hướng dẫn tích hợp realtime](./RANKING-REALTIME.md).
 
 **Response 200 OK**
 
@@ -642,7 +643,7 @@ Lỗi gửi thư ví dụ:
 4. Gắn Bearer cho `/auth/me`, `/votes`, `/votes/me`.
 5. Khi API cần xác thực trả 401, thử refresh có điều phối; nếu refresh thành công thì thay cả hai token. Refresh bị từ chối thì xóa phiên và yêu cầu đăng nhập lại.
 6. Không tự gửi lại POST bình chọn khi mạng timeout: kiểm tra `/votes/me` trước vì request trước có thể đã thành công. Không tự retry gửi OTP vô hạn.
-7. Dùng UUID để gửi vote, dùng slug để mở trang chi tiết. Refetch sau khi bỏ phiếu và polling Ranking.
+7. Dùng UUID để gửi vote, dùng slug để mở trang chi tiết. Refetch `/votes/me` sau khi bỏ phiếu; dùng SSE cho Ranking hoặc polling dự phòng.
 8. Logout với Refresh Token mới nhất, không parse JSON của response 204, xóa phiên phía client.
 
 ## Phạm vi hiện có và bàn giao triển khai

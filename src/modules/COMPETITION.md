@@ -163,7 +163,7 @@ bình chọn; `remainingVotes` và `maxVotes` là null vì không có hạn mứ
 ## Ranking
 
 `GET /rankings` trả toàn bộ điểm đến active. `GET /rankings/top` trả tối đa 3 điểm.
-Cả hai public, dùng `Cache-Control: no-store` để frontend polling 5–10 giây nhận
+Cả hai public, dùng `Cache-Control: no-store`; frontend có thể polling 5–10 giây nhận
 dữ liệu mới. Không cache counter, không tạo bảng tổng điểm.
 
 ```json
@@ -225,3 +225,12 @@ test, không gửi email thật và không ghi bảng public. Bao gồm phân tr
 ba phiếu đầu, phiếu thứ tư, trùng phiếu, request đồng thời, trước/sau/missing lịch,
 điểm đến inactive, ranking 0 phiếu/tổng/tie-break, auth và seed idempotent.
 Schema test được dọn sau mỗi suite. CI/CD hiện tại được giữ nguyên.
+
+### Ranking SSE và cache
+
+`GET /rankings/stream` phát snapshot qua event `rankings`, không cần token. Stream
+chia sẻ một query cho mọi người xem, kiểm tra DB mỗi 2 giây và refresh sau vote
+commit trên cùng instance. API JSON top/full dùng cache nội bộ 1 giây và gom
+request đồng thời; cache bị xóa sau vote. Không thay đổi bảng votes, quy tắc
+xếp hạng hoặc thêm bảng tổng điểm. Hướng dẫn FE và giới hạn cold start:
+[Ranking realtime](../../docs/RANKING-REALTIME.md).

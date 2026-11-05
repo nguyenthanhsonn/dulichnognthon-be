@@ -446,3 +446,71 @@ it('seeds sample destinations idempotently without overwriting existing content 
   ).toBe('Edited by operator');
   expect(mail.sendOtp).not.toHaveBeenCalled();
 });
+
+it('pushes committed votes to SSE clients and refreshes cached top/full rankings', async () => {
+  const { token } = await authenticatedUser();
+  const target = await destination();
+  // Prime the old snapshot, then open a real HTTP event stream.
+  await request(app.getHttpServer()).get('/rankings/top').expect(200);
+  await app.listen(0, '127.0.0.1');
+  const address = app.getHttpServer().address() as { port: number };
+  const abort = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/rankings/stream`,
+      { signal: abort.signal },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    expect(response.headers.get('x-accel-buffering')).toBe('no');
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const nextRanking = async () => {
+      while (true) {
+        const separator = buffer.indexOf('\n\n');
+        if (separator >= 0) {
+          const frame = buffer.slice(0, separator);
+          buffer = buffer.slice(separator + 2);
+          if (!frame.includes('event: rankings')) continue;
+          const line = frame
+            .split('\n')
+            .find((value) => value.startsWith('data: '));
+          if (line)
+            return JSON.parse(line.slice(6)) as {
+              totalVotes: number;
+              items: { id: string; voteCount: number }[];
+            };
+          continue;
+        }
+        const chunk = await reader!.read();
+        if (chunk.done) throw new Error('SSE stream ended unexpectedly');
+        buffer += decoder
+          .decode(chunk.value, { stream: true })
+          .replaceAll('\r\n', '\n');
+      }
+    };
+    expect((await nextRanking()).totalVotes).toBe(0);
+    await postVote(token, target.id).expect(201);
+    const updated = await nextRanking();
+    expect(updated.totalVotes).toBe(1);
+    expect(updated.items.find((item) => item.id === target.id)?.voteCount).toBe(
+      1,
+    );
+    const top = await request(app.getHttpServer())
+      .get('/rankings/top')
+      .expect(200);
+    expect(top.body.totalVotes).toBe(1);
+    expect(top.body.items[0].voteCount).toBe(1);
+    await postVote(token, target.id).expect(409);
+    expect(
+      (await request(app.getHttpServer()).get('/rankings').expect(200)).body
+        .totalVotes,
+    ).toBe(1);
+  } finally {
+    abort.abort();
+    await reader?.cancel().catch(() => {});
+  }
+});

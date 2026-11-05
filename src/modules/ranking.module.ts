@@ -7,5 +7,6 @@ import { RankingService } from '../services/ranking.service.js';
   imports: [DatabaseModule],
   controllers: [RankingController],
   providers: [RankingService],
+  exports: [RankingService],
 })
 export class RankingModule {}

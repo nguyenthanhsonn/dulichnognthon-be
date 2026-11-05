@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { RankingService } from './ranking.service.js';
 import { Vote } from '../database/entities/voting.entities.js';
 import { VotesRepository } from '../database/votes.repository.js';
 import { destinationSummary } from './dto/destination/destination.response.dto.js';
@@ -21,6 +22,7 @@ export class VotingService {
   constructor(
     @Inject(DataSource) private readonly database: DataSource,
     @Inject(VotesRepository) private readonly votes: VotesRepository,
+    @Inject(RankingService) private readonly rankings: RankingService,
   ) {}
 
   async castVote(
@@ -43,6 +45,8 @@ export class VotingService {
           throw new ConflictException('Bạn đã bình chọn cho điểm đến này.');
       }
     }
+    // Transaction đã commit trước khi báo thay đổi; gửi vote không phải chờ query ranking.
+    this.rankings.invalidate();
     return {
       id: outcome.vote.id,
       destinationId: outcome.vote.destinationId,
