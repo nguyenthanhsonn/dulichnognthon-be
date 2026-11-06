@@ -61,16 +61,8 @@ it('sends Gmail SMTP email with verified TLS, plain text and HTML without real n
   expect(sendMail).toHaveBeenCalledWith(
     expect.objectContaining({
       to: 'voter@example.com',
-      text: expect.stringContaining('012345'),
+      text: '012345',
       html: expect.stringContaining('012345'),
-      attachments: [
-        expect.objectContaining({
-          cid: 'logo@dulichnongthon',
-          contentType: 'image/png',
-          contentDisposition: 'inline',
-          content: expect.any(Buffer),
-        }),
-      ],
     }),
   );
   service.onModuleDestroy();
@@ -110,14 +102,8 @@ it('sends Resend through HTTPS with an idempotency key for the challenge', async
   expect(JSON.parse(options.body)).toMatchObject({
     to: ['voter@example.com'],
     from: 'Du lịch Nông thôn <login@example.com>',
-    html: expect.stringContaining('cid:logo@dulichnongthon'),
-    attachments: [
-      expect.objectContaining({
-        content_id: 'logo@dulichnongthon',
-        content_type: 'image/png',
-        content: expect.any(String),
-      }),
-    ],
+    text: '123456',
+    html: expect.stringContaining('123456'),
   });
   expect(url).not.toContain('123456');
 });
@@ -187,10 +173,7 @@ it('sends Gmail API MIME through HTTPS with OAuth and never connects to SMTP', a
   expect(mime).toContain('To: voter@example.com');
   expect(mime).toContain('<sender@gmail.com>');
   expect(mime).toContain('multipart/alternative');
-  expect(mime).toContain('Content-ID: <logo@dulichnongthon>');
-  expect(mime).toContain('Content-Disposition: inline;');
-  expect(mime).toContain('image/png');
-  expect(mime).toContain('multipart/related');
+  expect(mime).not.toContain('Content-Disposition:');
   expect(mime).toContain('012345');
   expect(mime).not.toContain(gmail.GMAIL_REFRESH_TOKEN);
   expect(mime).not.toContain('private-access-token');

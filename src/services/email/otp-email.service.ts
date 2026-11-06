@@ -102,10 +102,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
   ): Promise<void> {
     const settings = this.settings();
     try {
-      const { subject, text, html, attachments } = createOtpEmail(
-        otp,
-        context.expiresInSeconds,
-      );
+      const { subject, text, html } = createOtpEmail(otp);
       if (settings.provider === 'smtp') {
         this.smtp ??= nodemailer.createTransport({
           host: settings.host,
@@ -127,7 +124,6 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
           subject,
           text,
           html,
-          attachments,
         });
         const accepted = info.accepted?.some(
           (recipient) => recipient.toLowerCase() === email.toLowerCase(),
@@ -136,14 +132,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
           throw new Error('Recipient not accepted');
       } else if (settings.provider === 'gmail_api') {
         this.gmail ??= new GmailApiMailer(settings);
-        await this.gmail.send(
-          settings.from,
-          email,
-          subject,
-          text,
-          html,
-          attachments,
-        );
+        await this.gmail.send(settings.from, email, subject, text, html);
       } else {
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -158,12 +147,6 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             subject,
             text,
             html,
-            attachments: attachments.map((attachment) => ({
-              filename: attachment.filename,
-              content: attachment.content.toString('base64'),
-              content_type: attachment.contentType,
-              content_id: attachment.cid,
-            })),
           }),
           signal: AbortSignal.timeout(10000),
         });
