@@ -4,7 +4,7 @@ const imagePaths = [
   'v1793793026/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.48.35.png',
   'v1793793160/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.52.00.png',
   'v1793793420/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.56.14.png',
-  'v1793793420/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.56.14.png',
+  'v1793984362/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-06_lu%CC%81c_23.58.45.png',
   'v1793797570/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.05.44.png',
   'v1793797670/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.07.38.png',
   'v1793797736/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.08.47.png',
