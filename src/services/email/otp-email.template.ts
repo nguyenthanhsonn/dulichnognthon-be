@@ -6,6 +6,5 @@ export function createOtpEmail(otp: string) {
   return {
     subject: 'Mã xác thực đăng nhập | Du lịch Nông thôn',
     text: otp,
-    html: `<p dir="ltr" style="margin:16px 0;font-family:monospace;font-size:32px;font-weight:700;letter-spacing:4px;">${otp}</p>`,
   };
 }

@@ -38,7 +38,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('sends Gmail SMTP email with verified TLS, plain text and HTML without real network calls', async () => {
+it('sends Gmail SMTP email with verified TLS, plain text without real network calls', async () => {
   const sendMail = vi
     .fn()
     .mockResolvedValue({ accepted: ['voter@example.com'], rejected: [] });
@@ -62,7 +62,6 @@ it('sends Gmail SMTP email with verified TLS, plain text and HTML without real n
     expect.objectContaining({
       to: 'voter@example.com',
       text: '012345',
-      html: expect.stringContaining('012345'),
     }),
   );
   service.onModuleDestroy();
@@ -103,7 +102,6 @@ it('sends Resend through HTTPS with an idempotency key for the challenge', async
     to: ['voter@example.com'],
     from: 'Du lịch Nông thôn <login@example.com>',
     text: '123456',
-    html: expect.stringContaining('123456'),
   });
   expect(url).not.toContain('123456');
 });
@@ -172,9 +170,10 @@ it('sends Gmail API MIME through HTTPS with OAuth and never connects to SMTP', a
   const mime = Buffer.from(raw, 'base64url').toString('utf8');
   expect(mime).toContain('To: voter@example.com');
   expect(mime).toContain('<sender@gmail.com>');
-  expect(mime).toContain('multipart/alternative');
+  expect(mime).toContain('Content-Type: text/plain');
+  expect(mime).not.toContain('text/html');
   expect(mime).not.toContain('Content-Disposition:');
-  expect(mime).toContain('012345');
+  expect(mime.split('\r\n\r\n')[1]?.trim()).toBe('012345');
   expect(mime).not.toContain(gmail.GMAIL_REFRESH_TOKEN);
   expect(mime).not.toContain('private-access-token');
 });

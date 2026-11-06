@@ -1,6 +1,5 @@
 import { OAuth2Client } from 'google-auth-library';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
-import type { Attachment } from 'nodemailer/lib/mailer/index.js';
 
 export interface GmailApiSettings {
   clientId: string;
@@ -27,8 +26,6 @@ export class GmailApiMailer {
     to: string,
     subject: string,
     text: string,
-    html: string,
-    attachments: Attachment[] = [],
   ): Promise<void> {
     const { token } = await this.oauth.getAccessToken();
     if (!token) throw new Error('Gmail access token unavailable');
@@ -38,8 +35,6 @@ export class GmailApiMailer {
       to,
       subject,
       text,
-      html,
-      attachments,
       disableFileAccess: true,
       disableUrlAccess: true,
     })
