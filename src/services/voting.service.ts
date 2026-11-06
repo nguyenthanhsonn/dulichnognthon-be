@@ -7,7 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryFailedError } from 'typeorm';
 import { RankingService } from './ranking.service.js';
 import { Vote } from '../database/entities/voting.entities.js';
 import { VotesRepository } from '../database/votes.repository.js';
@@ -30,7 +30,20 @@ export class VotingService {
     destinationId: string,
   ): Promise<VoteResponseDto> {
     // Repository kiểm tra trùng và giữ khóa user trong toàn bộ transaction.
-    const outcome = await this.votes.castVote(userId, destinationId);
+    const outcome = await this.votes
+      .castVote(userId, destinationId)
+      .catch((error: unknown) => {
+        if (
+          error instanceof QueryFailedError &&
+          error.driverError.code === '23514' &&
+          error.driverError.constraint === 'votes_contest_2026_window_check'
+        ) {
+          throw new ForbiddenException(
+            'Cổng bình chọn nhận phiếu từ 00:00 ngày 07/11/2026 đến hết 23:59 ngày 20/11/2026 (giờ Việt Nam).',
+          );
+        }
+        throw error;
+      });
     if (!outcome.accepted) {
       switch (outcome.reason) {
         case 'USER_NOT_FOUND':
