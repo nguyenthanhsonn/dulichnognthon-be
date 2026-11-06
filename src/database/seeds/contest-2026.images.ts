@@ -22,7 +22,7 @@ const imagePaths = [
   'v1793799423/lang_chai_ngu_my_thanh_letanthanh.jpg',
   'v1793799509/thac-anor-1_1634108012.webp',
   'v1793799549/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.39.01.png',
-  'v1793799718/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.41.47.png',
+  'v1793984666/lang-go-co-ivivu-1-1024x576.jpg',
   'v1793799718/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.41.47.png',
   'v1793800436/vuon-hong-le-phuc-2.jpg',
   'v1793800733/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_20.58.16.png',

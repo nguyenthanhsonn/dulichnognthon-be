@@ -83,7 +83,6 @@ it('seeds thumbnails and images by source slug, supports dry-run/concurrency and
     skippedImages: 1,
     updatedThumbnails: 35,
     repeatedImageEntries: [
-      [23, 24],
     ],
   });
   expect(await repo.find({ order: { slug: 'ASC' } })).toEqual(before);
