@@ -8,6 +8,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { ThrottlerException } from '@nestjs/throttler';
 import type { HttpRequest } from '../types/http-request.js';
 
 @Catch()
@@ -45,6 +46,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
           error = body.error;
         }
       }
+    }
+
+    if (exception instanceof ThrottlerException) {
+      message =
+        'Có nhiều yêu cầu từ mạng của bạn. Vui lòng chờ một phút rồi thử lại.';
     }
 
     if (statusCode >= 500) {

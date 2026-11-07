@@ -79,9 +79,44 @@ Service đã tồn tại cần cập nhật các biến thủ công; `sync: fals
 Giữ/chọn gói **Free** rồi redeploy; khởi động lại backend local sau khi thay `.env`.
 Các biến `SMTP_*` và `RESEND_API_KEY` không được dùng khi provider là `gmail_api`.
 
-Thiếu một trong ba biến OAuth trả 503 trước khi tạo challenge; không tự chuyển sang
-SMTP hoặc Resend. OAuth client tự cache/refresh Access Token. Không tự retry gửi
-thư khi Gmail lỗi/timeout để tránh gửi trùng. Lỗi gửi vô hiệu challenge và trả lỗi
+#### Nhiều tài khoản Gmail và chuyển khi hết quota
+
+Đặt `EMAIL_PROVIDER=gmail_api` và thêm `GMAIL_ACCOUNTS` trong Render Environment
+hoặc `.env`. Giá trị là mảng JSON, thứ tự tài khoản là thứ tự ưu tiên. Ví dụ `.env`:
+
+```dotenv
+GMAIL_ACCOUNTS='[{"from":"xelon1929@gmail.com","clientId":"CLIENT_ID_MOI","clientSecret":"SECRET_MOI","refreshToken":"TOKEN_XELON"},{"from":"backup@gmail.com","clientId":"CLIENT_ID_DU_PHONG","clientSecret":"SECRET_DU_PHONG","refreshToken":"TOKEN_DU_PHONG"}]'
+```
+
+Trong Render nhập JSON trực tiếp, không bọc thêm dấu nháy đơn. Thay các giá trị
+mẫu bằng thông tin thật, lưu và redeploy. `from` phải khớp tài khoản đã cấp token.
+Nếu `mediaqtm@gmail.com` đang hết quota, đặt `xelon1929@gmail.com` đầu danh sách;
+chỉ thêm mediaqtm sau khi đã thay credential bị lộ. Không commit bí mật vào repo.
+
+Khi `GMAIL_ACCOUNTS` có giá trị, backend bỏ qua `MAIL_FROM` và ba biến `GMAIL_*`
+đơn. JSON sai hoặc email trùng sẽ trả 503 trước khi tạo challenge; không âm thầm
+dùng cấu hình cũ. Nếu biến trống/không có, cấu hình Gmail đơn vẫn hoạt động.
+
+Backend chuyển sang tài khoản kế tiếp ngay trong lần gửi OTP khi Gmail trả 429
+hoặc 403 có reason `userRateLimitExceeded`, `rateLimitExceeded`, `dailyLimitExceeded`.
+Tài khoản bị chặn được nghỉ theo header `Retry-After`, mặc định 60 giây nếu không
+có header hợp lệ. Các lần gửi tiếp theo tiếp tục dùng tài khoản đã gửi thành công;
+khi tài khoản đó hết quota, backend tìm vòng qua danh sách, kể cả tài khoản cũ đã
+hết thời gian nghỉ. Mỗi tài khoản được thử tối đa một lần trong một request.
+Nếu tất cả đang bị chặn, trả 503 chung và không gửi thêm request tới Google.
+
+Không chuyển tài khoản khi timeout, lỗi mạng, 5xx, phản hồi thiếu message ID hay
+lỗi OAuth/quyền truy cập để tránh gửi trùng hoặc che lỗi cấu hình. Trạng thái nghỉ
+nằm trong bộ nhớ mỗi instance, mất khi restart; không đồng bộ giữa các instance.
+Hạn mức theo Gmail được dùng chung giữa mọi client/API/SMTP của cùng tài khoản;
+quota cấp project vẫn có thể ảnh hưởng nhiều tài khoản cùng project. Gmail nhận
+request không bảo đảm thư đã tới Inbox.
+[Quy tắc lỗi và hạn mức Gmail](https://developers.google.com/workspace/gmail/api/guides/handle-errors).
+
+Với cấu hình Gmail đơn, thiếu một trong ba biến OAuth trả 503 trước khi tạo
+challenge; không tự chuyển sang SMTP hoặc Resend. OAuth client tự cache/refresh
+Access Token. Chỉ chuyển tài khoản theo lỗi quota như mô tả ở trên, không retry
+thư khi timeout để tránh gửi trùng. Lỗi gửi vô hiệu challenge và trả lỗi
 chung, không lộ OTP, token hoặc phản hồi Google. Không gửi thư khi khởi động.
 
 ### 5. Kiểm tra thực tế
@@ -158,8 +193,13 @@ Response auth dùng `Cache-Control: no-store`.
 - Trong phiên đang chờ, mỗi lần resend cách ít nhất 60 giây và tối đa 3 lần/phiên.
   Quota chống spam độc lập mặc định 10 challenge/email/giờ, tính cả các phiên đã
   hoàn tất. Gửi lỗi vẫn tính quota. Trả 429 khi vượt giới hạn.
-- Giới hạn IP: send + resend dùng chung 5/phút, verify 15/phút, các route auth khác 60/phút; bộ đếm IP
+- Giới hạn IP: send + resend dùng chung 60/phút, verify 120/phút, các route auth khác 60/phút; bộ đếm IP
   nằm trong bộ nhớ mỗi instance. Render đặt `TRUST_PROXY_HOPS=1`, local trực tiếp `0`.
+  Ngưỡng IP cho phép nhiều người chung Wi-Fi/NAT; cooldown và quota email trong
+  DB vẫn áp dụng độc lập. Lỗi IP trả thông báo tiếng Việt cùng header `Retry-After`
+  (số giây cần chờ), không trả chuỗi `ThrottlerException` ra giao diện.
+  Khi có thêm proxy phía trước Render, cần kiểm tra đường đi thực tế của request
+  trước khi đổi `TRUST_PROXY_HOPS`; không tin toàn bộ header IP do client gửi.
 - Access token HS256 sống 15 phút, kiểm tra issuer/audience, session và blocked user.
   Logout khiến access token bị từ chối ở lần kiểm tra sau.
 - Refresh token opaque có secret 256 bit, chỉ lưu SHA-256, session hết hạn tuyệt đối

@@ -7,6 +7,52 @@ export interface GmailApiSettings {
   refreshToken: string;
 }
 
+/** Chỉ lỗi quota đã được Google từ chối rõ ràng mới cho phép gửi qua tài khoản khác. */
+export class GmailQuotaError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super('Gmail quota exceeded');
+  }
+}
+
+function quotaRetryAfter(error: unknown): number | undefined {
+  const response = (
+    error as {
+      response?: {
+        status?: number;
+        data?: { error?: { errors?: { reason?: string }[] } };
+        headers?: {
+          get?: (name: string) => string | null;
+          [key: string]: unknown;
+        };
+      };
+    } | null
+  )?.response;
+  const reasons = response?.data?.error?.errors ?? [];
+  if (
+    response?.status !== 429 &&
+    !(
+      response?.status === 403 &&
+      reasons.some(({ reason }) =>
+        [
+          'userRateLimitExceeded',
+          'rateLimitExceeded',
+          'dailyLimitExceeded',
+        ].includes(reason ?? ''),
+      )
+    )
+  )
+    return undefined;
+  const header =
+    response?.headers?.get?.('retry-after') ??
+    response?.headers?.['retry-after'];
+  if (typeof header !== 'string' && typeof header !== 'number') return 60000;
+  const seconds = Number(header);
+  const delay = Number.isFinite(seconds)
+    ? seconds * 1000
+    : Date.parse(String(header)) - Date.now();
+  return Number.isFinite(delay) && delay > 0 ? Math.max(1000, delay) : 60000;
+}
+
 /** Chỉ gửi qua HTTPS; không kết nối SMTP và không cần quyền đọc hộp thư. */
 export class GmailApiMailer {
   private readonly oauth: OAuth2Client;
@@ -57,6 +103,8 @@ export class GmailApiMailer {
       });
       result = response.data;
     } catch (error) {
+      const retryAfterMs = quotaRetryAfter(error);
+      if (retryAfterMs !== undefined) throw new GmailQuotaError(retryAfterMs);
       // 401: lần gửi sau phải lấy token mới; không gửi lại thư trong request hiện tại.
       if (
         (error as { response?: { status?: number } }).response?.status === 401

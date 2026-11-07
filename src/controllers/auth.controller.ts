@@ -21,10 +21,12 @@ import {
   type AuthenticatedRequest,
 } from '../guards/access-token.guard.js';
 
-// Dùng chung bộ đếm IP cho send/resend để không nhân đôi quota khi đổi endpoint.
+// Nhiều người có thể chung IP (Wi-Fi/NAT). Quota theo email và cooldown được
+// AuthService bảo vệ trong DB; IP là giới hạn tổng để giảm spam trên nhiều email.
+// Dùng chung bộ đếm cho send/resend để không nhân đôi quota khi đổi endpoint.
 const otpDeliveryThrottle = {
   default: {
-    limit: 5,
+    limit: 60,
     ttl: 60000,
     generateKey: (_context: unknown, tracker: string, name: string) =>
       `auth:otp-delivery:${name}:${tracker}`,
@@ -55,7 +57,7 @@ export class AuthController {
   @Post('otp/verify')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
-  @Throttle({ default: { limit: 15, ttl: 60000 } })
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   verifyOtp(@Body(authDto(VerifyOtpRequestDto)) body: VerifyOtpRequestDto) {
     return this.auth.verifyOtp(body.email, body.otp);
   }

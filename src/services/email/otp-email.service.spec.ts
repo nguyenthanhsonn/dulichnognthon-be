@@ -264,3 +264,151 @@ it.each([
     ).rejects.toThrow('Không thể gửi email');
   },
 );
+
+const gmailPool = {
+  EMAIL_PROVIDER: 'gmail_api',
+  GMAIL_ACCOUNTS: JSON.stringify([
+    {
+      from: 'primary@gmail.com',
+      clientId: 'primary-client',
+      clientSecret: 'primary-secret',
+      refreshToken: 'primary-token',
+    },
+    {
+      from: 'backup@gmail.com',
+      clientId: 'backup-client',
+      clientSecret: 'backup-secret',
+      refreshToken: 'backup-token',
+    },
+  ]),
+};
+
+function mockGmailRequests(request: ReturnType<typeof vi.fn>) {
+  vi.spyOn(OAuth2Client.prototype, 'getAccessToken').mockImplementation(
+    async function (this: OAuth2Client) {
+      this.transporter.request = request;
+      return { token: String(this.credentials.refresh_token) };
+    },
+  );
+}
+
+it.each([
+  { status: 429 },
+  {
+    status: 403,
+    data: { error: { errors: [{ reason: 'userRateLimitExceeded' }] } },
+  },
+])(
+  'switches Gmail accounts on quota rejection and keeps using the backup (%j)',
+  async (response) => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce({ response })
+      .mockResolvedValue({ data: { id: 'sent' } });
+    mockGmailRequests(request);
+    const service = new OtpEmailService(new ConfigService(gmailPool));
+    await service.sendOtp('voter@example.com', '012345', context);
+    await service.sendOtp('voter@example.com', '654321', context);
+    expect(
+      request.mock.calls.map(([options]) => options.headers.Authorization),
+    ).toEqual([
+      'Bearer primary-token',
+      'Bearer backup-token',
+      'Bearer backup-token',
+    ]);
+    const mime = Buffer.from(
+      request.mock.calls[1][0].data.raw,
+      'base64url',
+    ).toString('utf8');
+    expect(mime).toContain('<backup@gmail.com>');
+    expect(mime.split('\r\n\r\n')[1]?.trim()).toBe('012345');
+  },
+);
+
+it('skips exhausted accounts until Retry-After expires, then recovers', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(1000000);
+  const request = vi
+    .fn()
+    .mockRejectedValue({
+      response: { status: 429, headers: { get: () => '120' } },
+    });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(new ConfigService(gmailPool));
+  await expect(
+    service.sendOtp('voter@example.com', '123456', context),
+  ).rejects.toThrow('Không thể gửi email');
+  expect(request).toHaveBeenCalledTimes(2);
+  now.mockReturnValue(1061000);
+  await expect(
+    service.sendOtp('voter@example.com', '123456', context),
+  ).rejects.toThrow('Không thể gửi email');
+  expect(request).toHaveBeenCalledTimes(2);
+  now.mockReturnValue(1120001);
+  request.mockResolvedValue({ data: { id: 'recovered' } });
+  await service.sendOtp('voter@example.com', '123456', context);
+  expect(request).toHaveBeenCalledTimes(3);
+});
+
+it.each([
+  new Error('timeout'),
+  { response: { status: 500 } },
+  { response: { status: 401 } },
+  {
+    response: {
+      status: 403,
+      data: { error: { errors: [{ reason: 'domainPolicy' }] } },
+    },
+  },
+])(
+  'does not switch accounts for ambiguous or non-quota errors (%j)',
+  async (error) => {
+    const request = vi.fn().mockRejectedValue(error);
+    mockGmailRequests(request);
+    await expect(
+      new OtpEmailService(new ConfigService(gmailPool)).sendOtp(
+        'voter@example.com',
+        '123456',
+        context,
+      ),
+    ).rejects.toThrow('Không thể gửi email');
+    expect(request).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each([
+  'invalid-json',
+  '[]',
+  '[{}]',
+  JSON.stringify([
+    {
+      from: 'invalid',
+      clientId: 'id',
+      clientSecret: 'secret',
+      refreshToken: 'token',
+    },
+  ]),
+  JSON.stringify([
+    {
+      from: 'same@gmail.com',
+      clientId: 'id',
+      clientSecret: 'secret',
+      refreshToken: 'token',
+    },
+    {
+      from: 'SAME@gmail.com',
+      clientId: 'id2',
+      clientSecret: 'secret2',
+      refreshToken: 'token2',
+    },
+  ]),
+])(
+  'rejects invalid Gmail pools without silently falling back to legacy config (%s)',
+  (accounts) => {
+    const service = new OtpEmailService(
+      new ConfigService({ ...gmail, GMAIL_ACCOUNTS: accounts }),
+    );
+    expect(() => service.assertAvailable()).toThrow(
+      'GMAIL_ACCOUNTS không hợp lệ',
+    );
+  },
+);

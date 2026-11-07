@@ -9,7 +9,11 @@ import { isEmail } from 'class-validator';
 import nodemailer, { type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js';
 import type { EmailSender, OtpEmailContext } from './email-sender.js';
-import { GmailApiMailer, type GmailApiSettings } from './gmail-api-mailer.js';
+import {
+  GmailApiMailer,
+  GmailQuotaError,
+  type GmailApiSettings,
+} from './gmail-api-mailer.js';
 import { createOtpEmail } from './otp-email.template.js';
 
 type MailSettings = { from: string } & (
@@ -22,18 +26,57 @@ type MailSettings = { from: string } & (
       pass: string;
     }
   | { provider: 'resend'; apiKey: string }
-  | ({ provider: 'gmail_api' } & GmailApiSettings)
+  | { provider: 'gmail_api'; accounts: ({ from: string } & GmailApiSettings)[] }
 );
 
 /** Production Render Free dùng Gmail API qua HTTPS. Không log OTP/credential. */
 @Injectable()
 export class OtpEmailService implements EmailSender, OnModuleDestroy {
   private smtp?: Transporter<SMTPTransport.SentMessageInfo>;
-  private gmail?: GmailApiMailer;
+  private gmail?: {
+    from: string;
+    mailer: GmailApiMailer;
+    availableAt: number;
+  }[];
+  private gmailIndex = 0;
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
   private settings(): MailSettings {
     const provider = this.config.get<string>('EMAIL_PROVIDER') || 'gmail_api';
+    const accountJson = this.config.get<string>('GMAIL_ACCOUNTS')?.trim();
+    if (provider === 'gmail_api' && accountJson) {
+      try {
+        const values: unknown = JSON.parse(accountJson);
+        if (!Array.isArray(values) || !values.length) throw new Error();
+        const seen = new Set<string>();
+        const accounts = values.map((value: unknown) => {
+          if (!value || typeof value !== 'object') throw new Error();
+          const account = value as Record<string, unknown>;
+          const fields = [
+            'from',
+            'clientId',
+            'clientSecret',
+            'refreshToken',
+          ] as const;
+          for (const field of fields) {
+            if (typeof account[field] !== 'string' || !account[field].trim())
+              throw new Error();
+          }
+          const from = (account.from as string).trim();
+          if (!isEmail(from) || seen.has(from.toLowerCase())) throw new Error();
+          seen.add(from.toLowerCase());
+          return {
+            from,
+            clientId: (account.clientId as string).trim(),
+            clientSecret: (account.clientSecret as string).trim(),
+            refreshToken: (account.refreshToken as string).trim(),
+          };
+        });
+        return { provider, from: accounts[0].from, accounts };
+      } catch {
+        throw new ServiceUnavailableException('GMAIL_ACCOUNTS không hợp lệ.');
+      }
+    }
     const from = this.config.get<string>('MAIL_FROM')?.trim();
     if (!from || !isEmail(from))
       throw new ServiceUnavailableException(
@@ -51,7 +94,11 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
         throw new ServiceUnavailableException(
           'Chưa cấu hình OAuth Gmail API hợp lệ.',
         );
-      return { provider, from, clientId, clientSecret, refreshToken };
+      return {
+        provider,
+        from,
+        accounts: [{ from, clientId, clientSecret, refreshToken }],
+      };
     }
     if (provider === 'resend') {
       const apiKey = this.config.get<string>('RESEND_API_KEY')?.trim();
@@ -130,8 +177,28 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
         if (!accepted || info.rejected?.length)
           throw new Error('Recipient not accepted');
       } else if (settings.provider === 'gmail_api') {
-        this.gmail ??= new GmailApiMailer(settings);
-        await this.gmail.send(settings.from, email, subject, text);
+        this.gmail ??= settings.accounts.map((account) => ({
+          from: account.from,
+          mailer: new GmailApiMailer(account),
+          availableAt: 0,
+        }));
+        const start = this.gmailIndex;
+        let sent = false;
+        for (let offset = 0; offset < this.gmail.length; offset++) {
+          const index = (start + offset) % this.gmail.length;
+          const account = this.gmail[index];
+          if (account.availableAt > Date.now()) continue;
+          try {
+            await account.mailer.send(account.from, email, subject, text);
+            this.gmailIndex = index;
+            sent = true;
+            break;
+          } catch (error) {
+            if (!(error instanceof GmailQuotaError)) throw error;
+            account.availableAt = Date.now() + error.retryAfterMs;
+          }
+        }
+        if (!sent) throw new Error('All Gmail accounts unavailable');
       } else {
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',

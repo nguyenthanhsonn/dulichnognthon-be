@@ -36,6 +36,8 @@ services:
         sync: false
       - key: GMAIL_REFRESH_TOKEN
         sync: false
+      # Tùy chọn: thêm GMAIL_ACCOUNTS (JSON) thủ công trong Environment để dùng
+      # nhiều tài khoản; danh sách này thay cấu hình Gmail đơn ở trên. Xem AUTH.md.
       - key: OTP_SEND_COOLDOWN_SECONDS
         value: '60'
       - key: OTP_MAX_SENDS_PER_HOUR
