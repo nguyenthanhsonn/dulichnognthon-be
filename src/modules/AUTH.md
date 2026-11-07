@@ -105,8 +105,15 @@ khi tài khoản đó hết quota, backend tìm vòng qua danh sách, kể cả 
 hết thời gian nghỉ. Mỗi tài khoản được thử tối đa một lần trong một request.
 Nếu tất cả đang bị chặn, trả 503 chung và không gửi thêm request tới Google.
 
+Các lỗi tài khoản bị từ chối rõ ràng cũng cho phép chuyển tiếp: OAuth 400/401/403
+với `invalid_grant`, `invalid_client`, `unauthorized_client`, `access_denied`;
+gửi mail trả 401; hoặc 403 với `accessNotConfigured`, `insufficientPermissions`,
+`domainPolicy`, `authError`, `forbidden`. Tài khoản đó nghỉ 5 phút, ghi log lỗi,
+rồi có thể được thử lại khi xoay vòng. Nhờ đó một project chưa bật API không
+chặn toàn bộ các tài khoản phía sau. Vẫn cần sửa cấu hình/token của tài khoản lỗi.
+
 Không chuyển tài khoản khi timeout, lỗi mạng, 5xx, phản hồi thiếu message ID hay
-lỗi OAuth/quyền truy cập để tránh gửi trùng hoặc che lỗi cấu hình. Trạng thái nghỉ
+lỗi không nhận diện được để tránh gửi trùng. Trạng thái nghỉ
 nằm trong bộ nhớ mỗi instance, mất khi restart; không đồng bộ giữa các instance.
 Hạn mức theo Gmail được dùng chung giữa mọi client/API/SMTP của cùng tài khoản;
 quota cấp project vẫn có thể ảnh hưởng nhiều tài khoản cùng project. Gmail nhận
@@ -115,7 +122,7 @@ request không bảo đảm thư đã tới Inbox.
 
 Với cấu hình Gmail đơn, thiếu một trong ba biến OAuth trả 503 trước khi tạo
 challenge; không tự chuyển sang SMTP hoặc Resend. OAuth client tự cache/refresh
-Access Token. Chỉ chuyển tài khoản theo lỗi quota như mô tả ở trên, không retry
+Access Token. Chỉ chuyển tài khoản theo lỗi quota/tài khoản như mô tả ở trên, không retry
 thư khi timeout để tránh gửi trùng. Lỗi gửi vô hiệu challenge và trả lỗi
 chung, không lộ OTP, token hoặc phản hồi Google. Không gửi thư khi khởi động.
 

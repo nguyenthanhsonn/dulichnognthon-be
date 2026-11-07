@@ -18,9 +18,35 @@ export class GmailDeliveryError extends Error {
   ) {
     super('Gmail delivery failed');
   }
+
+  /** Google đã từ chối rõ ràng, chưa nhận lệnh gửi: có thể thử tài khoản khác. */
+  get accountCooldownMs(): number | undefined {
+    const oauthRejected =
+      this.stage === 'oauth' &&
+      this.status !== undefined &&
+      [400, 401, 403].includes(this.status) &&
+      [
+        'invalid_grant',
+        'invalid_client',
+        'unauthorized_client',
+        'access_denied',
+      ].includes(this.reason);
+    const sendRejected =
+      this.stage === 'send' &&
+      (this.status === 401 ||
+        (this.status === 403 &&
+          [
+            'accessNotConfigured',
+            'insufficientPermissions',
+            'domainPolicy',
+            'authError',
+            'forbidden',
+          ].includes(this.reason)));
+    return oauthRejected || sendRejected ? 5 * 60000 : undefined;
+  }
 }
 
-/** Chỉ lỗi quota đã được Google từ chối rõ ràng mới cho phép gửi qua tài khoản khác. */
+/** Lỗi quota giữ thời gian nghỉ do Google yêu cầu. */
 export class GmailQuotaError extends GmailDeliveryError {
   constructor(
     readonly retryAfterMs: number,
@@ -28,6 +54,10 @@ export class GmailQuotaError extends GmailDeliveryError {
     status?: number,
   ) {
     super('send', reason, status);
+  }
+
+  override get accountCooldownMs(): number {
+    return this.retryAfterMs;
   }
 }
 

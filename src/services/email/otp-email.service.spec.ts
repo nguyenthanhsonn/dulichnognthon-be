@@ -351,15 +351,15 @@ it('skips exhausted accounts until Retry-After expires, then recovers', async ()
 it.each([
   new Error('timeout'),
   { response: { status: 500 } },
-  { response: { status: 401 } },
+  { response: { status: 400 } },
   {
     response: {
       status: 403,
-      data: { error: { errors: [{ reason: 'domainPolicy' }] } },
+      data: { error: { errors: [{ reason: 'unknownPolicy' }] } },
     },
   },
 ])(
-  'does not switch accounts for ambiguous or non-quota errors (%j)',
+  'does not switch accounts for ambiguous or unrelated errors (%j)',
   async (error) => {
     const request = vi.fn().mockRejectedValue(error);
     mockGmailRequests(request);
@@ -485,3 +485,137 @@ it.each([
     }
   },
 );
+
+it.each([
+  'accessNotConfigured',
+  'insufficientPermissions',
+  'domainPolicy',
+  'authError',
+  'forbidden',
+  'unauthorized',
+])(
+  'uses the backup after a definite Gmail account rejection (%s)',
+  async (reason) => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce({
+        response: {
+          status: reason === 'unauthorized' ? 401 : 403,
+          data: { error: { errors: [{ reason }] } },
+        },
+      })
+      .mockResolvedValue({ data: { id: 'accepted' } });
+    mockGmailRequests(request);
+    const service = new OtpEmailService(new ConfigService(gmailPool));
+    await service.sendOtp('voter@example.com', '123456', context);
+    await service.sendOtp('voter@example.com', '654321', context);
+    expect(
+      request.mock.calls.map(([options]) => options.headers.Authorization),
+    ).toEqual([
+      'Bearer primary-token',
+      'Bearer backup-token',
+      'Bearer backup-token',
+    ]);
+  },
+);
+
+it.each([
+  'invalid_grant',
+  'invalid_client',
+  'unauthorized_client',
+  'access_denied',
+])(
+  'skips rejected OAuth credentials without sending through that account (%s)',
+  async (reason) => {
+    const request = vi.fn().mockResolvedValue({ data: { id: 'accepted' } });
+    vi.spyOn(OAuth2Client.prototype, 'getAccessToken').mockImplementation(
+      async function (this: OAuth2Client) {
+        if (this.credentials.refresh_token === 'primary-token')
+          throw { response: { status: 400, data: { error: reason } } };
+        this.transporter.request = request;
+        return { token: 'backup-token' };
+      },
+    );
+    await new OtpEmailService(new ConfigService(gmailPool)).sendOtp(
+      'voter@example.com',
+      '123456',
+      context,
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0].headers.Authorization).toBe(
+      'Bearer backup-token',
+    );
+  },
+);
+
+it('reaches account four after two quota errors and an API-disabled account', async () => {
+  const pool = [1, 2, 3, 4].map((i) => ({
+    from: `sender${i}@gmail.com`,
+    clientId: `client${i}`,
+    clientSecret: `secret${i}`,
+    refreshToken: `token${i}`,
+  }));
+  const request = vi
+    .fn()
+    .mockRejectedValueOnce({ response: { status: 429 } })
+    .mockRejectedValueOnce({ response: { status: 429 } })
+    .mockRejectedValueOnce({
+      response: {
+        status: 403,
+        data: { error: { errors: [{ reason: 'accessNotConfigured' }] } },
+      },
+    })
+    .mockResolvedValue({ data: { id: 'accepted' } });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(
+    new ConfigService({
+      EMAIL_PROVIDER: 'gmail_api',
+      GMAIL_ACCOUNTS: JSON.stringify(pool),
+    }),
+  );
+  await service.sendOtp('voter@example.com', '123456', context);
+  expect(
+    request.mock.calls.map(([options]) => options.headers.Authorization),
+  ).toEqual([
+    'Bearer token1',
+    'Bearer token2',
+    'Bearer token3',
+    'Bearer token4',
+  ]);
+  const bodies = request.mock.calls.map(([options]) =>
+    Buffer.from(options.data.raw, 'base64url')
+      .toString('utf8')
+      .split('\r\n\r\n')[1]
+      ?.trim(),
+  );
+  expect(bodies).toEqual(['123456', '123456', '123456', '123456']);
+  await service.sendOtp('voter@example.com', '654321', context);
+  expect(request).toHaveBeenCalledTimes(5);
+  expect(request.mock.calls[4][0].headers.Authorization).toBe('Bearer token4');
+});
+
+it('keeps rejected accounts out for five minutes and allows recovery afterwards', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(1000000);
+  const request = vi
+    .fn()
+    .mockRejectedValue({
+      response: {
+        status: 403,
+        data: { error: { errors: [{ reason: 'accessNotConfigured' }] } },
+      },
+    });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(new ConfigService(gmailPool));
+  await expect(
+    service.sendOtp('voter@example.com', '123456', context),
+  ).rejects.toThrow('Không thể gửi email');
+  now.mockReturnValue(1060000);
+  await expect(
+    service.sendOtp('voter@example.com', '123456', context),
+  ).rejects.toThrow('Không thể gửi email');
+  expect(request).toHaveBeenCalledTimes(2);
+  now.mockReturnValue(1300001);
+  request.mockResolvedValue({ data: { id: 'recovered' } });
+  await service.sendOtp('voter@example.com', '123456', context);
+  expect(request).toHaveBeenCalledTimes(3);
+});

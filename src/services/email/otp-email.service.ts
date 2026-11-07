@@ -13,7 +13,6 @@ import type { EmailSender, OtpEmailContext } from './email-sender.js';
 import {
   GmailApiMailer,
   GmailDeliveryError,
-  GmailQuotaError,
   type GmailApiSettings,
 } from './gmail-api-mailer.js';
 import { createOtpEmail } from './otp-email.template.js';
@@ -202,8 +201,12 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
                 `Gmail delivery failed account=${index + 1} challengeId=${context.challengeId} stage=${error.stage} status=${error.status ?? 'unknown'} reason=${error.reason}`,
               );
             }
-            if (!(error instanceof GmailQuotaError)) throw error;
-            account.availableAt = Date.now() + error.retryAfterMs;
+            const cooldown =
+              error instanceof GmailDeliveryError
+                ? error.accountCooldownMs
+                : undefined;
+            if (cooldown === undefined) throw error;
+            account.availableAt = Date.now() + cooldown;
           }
         }
         if (!sent) throw new Error('All Gmail accounts unavailable');
