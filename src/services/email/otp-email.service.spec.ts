@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { type DataSource } from 'typeorm';
 import nodemailer from 'nodemailer';
@@ -327,11 +328,9 @@ it.each([
 
 it('skips exhausted accounts until Retry-After expires, then recovers', async () => {
   const now = vi.spyOn(Date, 'now').mockReturnValue(1000000);
-  const request = vi
-    .fn()
-    .mockRejectedValue({
-      response: { status: 429, headers: { get: () => '120' } },
-    });
+  const request = vi.fn().mockRejectedValue({
+    response: { status: 429, headers: { get: () => '120' } },
+  });
   mockGmailRequests(request);
   const service = new OtpEmailService(new ConfigService(gmailPool));
   await expect(
@@ -410,5 +409,79 @@ it.each([
     expect(() => service.assertAvailable()).toThrow(
       'GMAIL_ACCOUNTS không hợp lệ',
     );
+  },
+);
+
+it.each([
+  [
+    'oauth',
+    {
+      response: {
+        status: 400,
+        data: { error: 'invalid_grant', error_description: 'SECRET OTP TOKEN' },
+      },
+    },
+    'invalid_grant',
+  ],
+  [
+    'send',
+    {
+      response: {
+        status: 403,
+        data: {
+          error: {
+            errors: [
+              {
+                reason: 'insufficientPermissions',
+                message: 'SECRET OTP TOKEN',
+              },
+            ],
+          },
+        },
+      },
+    },
+    'insufficientPermissions',
+  ],
+  ['send', { code: 'ETIMEDOUT', message: 'SECRET OTP TOKEN' }, 'ETIMEDOUT'],
+  [
+    'send',
+    {
+      code: 'SECRET OTP TOKEN',
+      response: { status: 400, data: { error: 'SECRET OTP TOKEN' } },
+    },
+    'unknown',
+  ],
+])(
+  'logs safe diagnostics for %s failures without exposing credentials',
+  async (stage, failure, reason) => {
+    const log = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    if (stage === 'oauth') {
+      vi.spyOn(OAuth2Client.prototype, 'getAccessToken').mockRejectedValue(
+        failure,
+      );
+    } else {
+      mockGmailRequests(vi.fn().mockRejectedValue(failure));
+    }
+    await expect(
+      new OtpEmailService(new ConfigService(gmail)).sendOtp(
+        'voter@example.com',
+        '012345',
+        context,
+      ),
+    ).rejects.toThrow('Không thể gửi email');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`stage=${stage}`));
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining(`reason=${reason}`),
+    );
+    const output = JSON.stringify(log.mock.calls);
+    for (const secret of [
+      'SECRET',
+      '012345',
+      'voter@example.com',
+      gmail.GMAIL_REFRESH_TOKEN,
+      gmail.GMAIL_CLIENT_SECRET,
+    ]) {
+      expect(output).not.toContain(secret);
+    }
   },
 );

@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   type OnModuleDestroy,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js';
 import type { EmailSender, OtpEmailContext } from './email-sender.js';
 import {
   GmailApiMailer,
+  GmailDeliveryError,
   GmailQuotaError,
   type GmailApiSettings,
 } from './gmail-api-mailer.js';
@@ -32,6 +34,7 @@ type MailSettings = { from: string } & (
 /** Production Render Free dùng Gmail API qua HTTPS. Không log OTP/credential. */
 @Injectable()
 export class OtpEmailService implements EmailSender, OnModuleDestroy {
+  private readonly logger = new Logger(OtpEmailService.name);
   private smtp?: Transporter<SMTPTransport.SentMessageInfo>;
   private gmail?: {
     from: string;
@@ -194,6 +197,11 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             sent = true;
             break;
           } catch (error) {
+            if (error instanceof GmailDeliveryError) {
+              this.logger.warn(
+                `Gmail delivery failed account=${index + 1} challengeId=${context.challengeId} stage=${error.stage} status=${error.status ?? 'unknown'} reason=${error.reason}`,
+              );
+            }
             if (!(error instanceof GmailQuotaError)) throw error;
             account.availableAt = Date.now() + error.retryAfterMs;
           }

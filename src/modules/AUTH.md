@@ -121,6 +121,15 @@ chung, không lộ OTP, token hoặc phản hồi Google. Không gửi thư khi 
 
 ### 5. Kiểm tra thực tế
 
+Nếu gửi thất bại, tìm `Gmail delivery failed` trong Render Logs. Log chỉ chứa
+`account` (vị trí 1-based trong danh sách), `challengeId`, `stage`, `status`,
+`reason` thuộc danh sách cho phép; không chứa địa chỉ nhận, OTP, token, secret
+hoặc phản hồi Google gốc. `stage=oauth reason=invalid_grant` cần cấp quyền lại
+refresh token; `stage=send status=403 reason=insufficientPermissions` cần kiểm
+tra scope `gmail.send`; `status=429` là hạn mức Gmail; `reason=ETIMEDOUT` là
+timeout. Lỗi không nhận diện được ghi `reason=unknown`, không phỏng đoán quota.
+API gửi/gửi lại OTP trả 503 với thông báo tiếng Việt cố định, vẫn ẩn chi tiết gốc.
+
 Gọi `POST /auth/otp/send` với `{"email":"email-nhan@example.com"}`, kiểm tra Inbox/Spam
 rồi gọi `/auth/otp/verify` với email và mã nhận được. Chỉ gọi bước này với địa chỉ
 người nhận được phép thử. HTTP 202 nghĩa là Gmail đã nhận lệnh, không bảo đảm thư

@@ -7,11 +7,87 @@ export interface GmailApiSettings {
   refreshToken: string;
 }
 
-/** Chỉ lỗi quota đã được Google từ chối rõ ràng mới cho phép gửi qua tài khoản khác. */
-export class GmailQuotaError extends Error {
-  constructor(readonly retryAfterMs: number) {
-    super('Gmail quota exceeded');
+export type GmailDeliveryStage = 'oauth' | 'compose' | 'send' | 'acceptance';
+
+/** Chỉ chứa metadata cho phép log; không giữ response, message hay cause gốc. */
+export class GmailDeliveryError extends Error {
+  constructor(
+    readonly stage: GmailDeliveryStage,
+    readonly reason: string,
+    readonly status?: number,
+  ) {
+    super('Gmail delivery failed');
   }
+}
+
+/** Chỉ lỗi quota đã được Google từ chối rõ ràng mới cho phép gửi qua tài khoản khác. */
+export class GmailQuotaError extends GmailDeliveryError {
+  constructor(
+    readonly retryAfterMs: number,
+    reason = 'quota',
+    status?: number,
+  ) {
+    super('send', reason, status);
+  }
+}
+
+function deliveryError(
+  stage: GmailDeliveryStage,
+  error: unknown,
+): GmailDeliveryError {
+  const source = error as {
+    code?: unknown;
+    response?: { status?: unknown; data?: { error?: unknown } };
+  } | null;
+  const status = source?.response?.status;
+  const apiError = source?.response?.data?.error;
+  const reasons =
+    typeof apiError === 'object' &&
+    apiError !== null &&
+    'errors' in apiError &&
+    Array.isArray(apiError.errors)
+      ? apiError.errors.map((item: unknown) =>
+          item && typeof item === 'object' && 'reason' in item
+            ? item.reason
+            : undefined,
+        )
+      : [];
+  const known = [
+    'invalid_grant',
+    'invalid_client',
+    'unauthorized_client',
+    'access_denied',
+    'authError',
+    'insufficientPermissions',
+    'forbidden',
+    'domainPolicy',
+    'userRateLimitExceeded',
+    'rateLimitExceeded',
+    'dailyLimitExceeded',
+    'quotaExceeded',
+    'accessNotConfigured',
+    'backendError',
+    'ETIMEDOUT',
+    'ECONNRESET',
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'ECONNREFUSED',
+  ];
+  const reason =
+    known.find(
+      (value) =>
+        value === apiError || value === source?.code || reasons.includes(value),
+    ) ?? 'unknown';
+  return new GmailDeliveryError(
+    stage,
+    reason,
+    typeof status === 'number' &&
+      Number.isInteger(status) &&
+      status >= 100 &&
+      status <= 599
+      ? status
+      : undefined,
+  );
 }
 
 function quotaRetryAfter(error: unknown): number | undefined {
@@ -73,19 +149,29 @@ export class GmailApiMailer {
     subject: string,
     text: string,
   ): Promise<void> {
-    const { token } = await this.oauth.getAccessToken();
-    if (!token) throw new Error('Gmail access token unavailable');
+    let token: string | null | undefined;
+    try {
+      ({ token } = await this.oauth.getAccessToken());
+    } catch (error) {
+      throw deliveryError('oauth', error);
+    }
+    if (!token) throw new GmailDeliveryError('oauth', 'missing_token');
     // MailComposer mã hóa MIME/UTF-8 và header; tuyệt đối không ghép header từ input.
-    const message = await new MailComposer({
-      from: { name: 'Du lịch Nông thôn', address: from },
-      to,
-      subject,
-      text,
-      disableFileAccess: true,
-      disableUrlAccess: true,
-    })
-      .compile()
-      .build();
+    let message: Buffer;
+    try {
+      message = await new MailComposer({
+        from: { name: 'Du lịch Nông thôn', address: from },
+        to,
+        subject,
+        text,
+        disableFileAccess: true,
+        disableUrlAccess: true,
+      })
+        .compile()
+        .build();
+    } catch {
+      throw new GmailDeliveryError('compose', 'mime_error');
+    }
     // Không tự retry lệnh gửi: timeout có thể xảy ra sau khi Gmail đã nhận thư.
     let result: unknown;
     try {
@@ -104,13 +190,15 @@ export class GmailApiMailer {
       result = response.data;
     } catch (error) {
       const retryAfterMs = quotaRetryAfter(error);
-      if (retryAfterMs !== undefined) throw new GmailQuotaError(retryAfterMs);
+      const failure = deliveryError('send', error);
+      if (retryAfterMs !== undefined)
+        throw new GmailQuotaError(retryAfterMs, failure.reason, failure.status);
       // 401: lần gửi sau phải lấy token mới; không gửi lại thư trong request hiện tại.
       if (
         (error as { response?: { status?: number } }).response?.status === 401
       )
         this.oauth.credentials.access_token = undefined;
-      throw new Error('Gmail request rejected');
+      throw failure;
     }
     if (
       !result ||
@@ -119,7 +207,7 @@ export class GmailApiMailer {
       typeof result.id !== 'string' ||
       !result.id
     ) {
-      throw new Error('Gmail acceptance missing');
+      throw new GmailDeliveryError('acceptance', 'missing_message_id');
     }
   }
 }

@@ -53,6 +53,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
         'Có nhiều yêu cầu từ mạng của bạn. Vui lòng chờ một phút rồi thử lại.';
     }
 
+    if (
+      statusCode === 503 &&
+      ['/auth/otp/send', '/auth/otp/resend'].includes(request.path)
+    ) {
+      message = 'Không thể gửi mã OTP lúc này. Vui lòng thử lại sau.';
+    }
+
     if (statusCode >= 500) {
       this.logger.error(
         `${request.method} ${request.path} ${statusCode} requestId=${request.requestId ?? 'unknown'}`,

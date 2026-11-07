@@ -1,4 +1,8 @@
-import { type INestApplication } from '@nestjs/common';
+import {
+  type INestApplication,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ThrottlerModule } from '@nestjs/throttler';
 import request from 'supertest';
@@ -38,6 +42,27 @@ describe('Auth request validation and IP throttling', () => {
       .send({ email: '  Voter@Example.COM  ' })
       .expect(202);
     expect(auth.sendOtp).toHaveBeenCalledWith('voter@example.com');
+  });
+
+  it('returns a safe Vietnamese message when OTP delivery is unavailable', async () => {
+    const log = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    auth.sendOtp.mockRejectedValueOnce(
+      new ServiceUnavailableException('private upstream credentials'),
+    );
+    try {
+      const response = await request(app.getHttpServer())
+        .post('/auth/otp/send')
+        .send({ email: 'voter@example.com' })
+        .expect(503);
+      expect(response.body.message).toBe(
+        'Không thể gửi mã OTP lúc này. Vui lòng thử lại sau.',
+      );
+      expect(JSON.stringify(response.body)).not.toContain('private');
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('rejects invalid emails, unexpected fields and non-string OTPs', async () => {
