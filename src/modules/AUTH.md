@@ -126,6 +126,35 @@ Access Token. Chỉ chuyển tài khoản theo lỗi quota/tài khoản như mô
 thư khi timeout để tránh gửi trùng. Lỗi gửi vô hiệu challenge và trả lỗi
 chung, không lộ OTP, token hoặc phản hồi Google. Không gửi thư khi khởi động.
 
+#### Chuyển khi Gmail báo hết lượt bằng thư trả lại
+
+Thêm `"checkQuotaBounces": true` vào mục Gmail cần theo dõi trong `GMAIL_ACCOUNTS`.
+Với tài khoản đó, cấp lại OAuth bằng cả hai scope sau và thay `refreshToken`
+trong cùng mục. Giữ địa chỉ gửi và các tài khoản khác trong danh sách.
+
+```text
+https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/gmail.readonly
+```
+
+`gmail.readonly` là scope hạn chế. Bật từng tài khoản sau khi đã cấp quyền đọc
+và kiểm tra yêu cầu xác minh OAuth của Google.
+[Quyền Gmail API](https://developers.google.com/workspace/gmail/api/auth/scopes).
+
+Trước khi gửi OTP từ một tài khoản đã bật, backend kiểm tra tối đa một lần mỗi
+phút trên mỗi instance. Backend chỉ tìm trong Inbox các thư có tiêu đề OTP từ
+`mailer-daemon@googlemail.com` và nội dung báo đạt giới hạn gửi bằng tiếng Việt
+hoặc tiếng Anh. Khi khớp, tài khoản nghỉ tối đa 24 giờ tính từ lúc Gmail nhận
+thư trả lại, rồi vòng gửi thử tài khoản kế tiếp ngay trong request hiện tại.
+Sau khi restart, lần kiểm tra tiếp theo đọc lại các thông báo còn trong khoảng
+24 giờ. Yêu cầu OTP mới hoặc gửi lại qua giao diện kích hoạt bước kiểm tra này.
+
+Render Logs ghi `Gmail quota bounce detected` kèm `account`, `challengeId` và
+`pausedUntil`. `Gmail OTP accepted after switch` cho biết Gmail dự phòng đã
+chấp nhận lệnh gửi. Nếu đọc Inbox lỗi hoặc token thiếu quyền, log
+`Gmail quota check failed` và tiếp tục dùng cơ chế xử lý phản hồi gửi Gmail API.
+Tài khoản chỉ có scope `gmail.send` tiếp tục hoạt động khi bỏ qua tùy chọn này.
+
 ### 5. Kiểm tra thực tế
 
 Nếu gửi thất bại, tìm `Gmail delivery failed` trong Render Logs. Log chỉ chứa

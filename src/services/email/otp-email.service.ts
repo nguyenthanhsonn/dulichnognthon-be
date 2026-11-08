@@ -17,6 +17,20 @@ import {
 } from './gmail-api-mailer.js';
 import { createOtpEmail } from './otp-email.template.js';
 
+type GmailAccountSettings = GmailApiSettings & {
+  from: string;
+  checkQuotaBounces?: boolean;
+};
+
+type GmailAccount = {
+  from: string;
+  mailer: GmailApiMailer;
+  availableAt: number;
+  checkQuotaBounces?: boolean;
+  nextBounceCheckAt: number;
+  bounceCheck?: Promise<void>;
+};
+
 type MailSettings = { from: string } & (
   | {
       provider: 'smtp';
@@ -27,7 +41,7 @@ type MailSettings = { from: string } & (
       pass: string;
     }
   | { provider: 'resend'; apiKey: string }
-  | { provider: 'gmail_api'; accounts: ({ from: string } & GmailApiSettings)[] }
+  | { provider: 'gmail_api'; accounts: GmailAccountSettings[] }
 );
 
 /** Production Render Free dùng Gmail API qua HTTPS. Không log OTP/credential. */
@@ -35,11 +49,7 @@ type MailSettings = { from: string } & (
 export class OtpEmailService implements EmailSender, OnModuleDestroy {
   private readonly logger = new Logger(OtpEmailService.name);
   private smtp?: Transporter<SMTPTransport.SentMessageInfo>;
-  private gmail?: {
-    from: string;
-    mailer: GmailApiMailer;
-    availableAt: number;
-  }[];
+  private gmail?: GmailAccount[];
   private gmailIndex = 0;
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
@@ -64,6 +74,12 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             if (typeof account[field] !== 'string' || !account[field].trim())
               throw new Error();
           }
+          const { checkQuotaBounces } = account;
+          if (
+            checkQuotaBounces !== undefined &&
+            typeof checkQuotaBounces !== 'boolean'
+          )
+            throw new Error();
           const from = (account.from as string).trim();
           if (!isEmail(from) || seen.has(from.toLowerCase())) throw new Error();
           seen.add(from.toLowerCase());
@@ -72,6 +88,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             clientId: (account.clientId as string).trim(),
             clientSecret: (account.clientSecret as string).trim(),
             refreshToken: (account.refreshToken as string).trim(),
+            checkQuotaBounces,
           };
         });
         return { provider, from: accounts[0].from, accounts };
@@ -144,6 +161,38 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
     this.settings();
   }
 
+  private async checkGmailQuotaBounce(
+    account: GmailAccount,
+    index: number,
+    subject: string,
+    challengeId: string,
+  ): Promise<void> {
+    if (!account.checkQuotaBounces || account.nextBounceCheckAt > Date.now())
+      return;
+
+    account.bounceCheck ??= account.mailer
+      .quotaBounceUntil(subject)
+      .then((until) => {
+        if (until <= Date.now()) return;
+        account.availableAt = Math.max(account.availableAt, until);
+        this.logger.warn(
+          `Gmail quota bounce detected account=${index + 1} challengeId=${challengeId} pausedUntil=${new Date(account.availableAt).toISOString()}`,
+        );
+      })
+      .catch((error: unknown) => {
+        const failure = error instanceof GmailDeliveryError ? error : undefined;
+        this.logger.warn(
+          `Gmail quota check failed account=${index + 1} challengeId=${challengeId} status=${failure?.status ?? 'unknown'} reason=${failure?.reason ?? 'unknown'}`,
+        );
+      })
+      .finally(() => {
+        account.nextBounceCheckAt = Date.now() + 60000;
+        account.bounceCheck = undefined;
+      });
+
+    await account.bounceCheck;
+  }
+
   async sendOtp(
     email: string,
     otp: string,
@@ -183,6 +232,8 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
           from: account.from,
           mailer: new GmailApiMailer(account),
           availableAt: 0,
+          checkQuotaBounces: account.checkQuotaBounces,
+          nextBounceCheckAt: 0,
         }));
         const start = this.gmailIndex;
         let sent = false;
@@ -190,8 +241,19 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
           const index = (start + offset) % this.gmail.length;
           const account = this.gmail[index];
           if (account.availableAt > Date.now()) continue;
+          await this.checkGmailQuotaBounce(
+            account,
+            index,
+            subject,
+            context.challengeId,
+          );
+          if (account.availableAt > Date.now()) continue;
           try {
             await account.mailer.send(account.from, email, subject, text);
+            if (index !== start)
+              this.logger.log(
+                `Gmail OTP accepted after switch fromAccount=${start + 1} account=${index + 1} challengeId=${context.challengeId}`,
+              );
             this.gmailIndex = index;
             sent = true;
             break;
@@ -206,7 +268,10 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
                 ? error.accountCooldownMs
                 : undefined;
             if (cooldown === undefined) throw error;
-            account.availableAt = Date.now() + cooldown;
+            account.availableAt = Math.max(
+              account.availableAt,
+              Date.now() + cooldown,
+            );
           }
         }
         if (!sent) throw new Error('All Gmail accounts unavailable');
