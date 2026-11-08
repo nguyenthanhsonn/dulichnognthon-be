@@ -1,6 +1,6 @@
 // Theo số thứ tự 1–35 trong tài liệu gốc; giữ nguyên URL và encoding người dùng gửi.
 const imagePaths = [
-  'v1793791752/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.27.24.png',
+  'v1794115485/1794114545185_4453054604909542924_g5742833548156072562_3be465a1be89552c64a8a6cf83851224.jpg',
   'v1793793026/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.48.35.png',
   'v1793793160/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.52.00.png',
   'v1793793420/A%CC%89nh_ma%CC%80n_hi%CC%80nh_2026-11-04_lu%CC%81c_18.56.14.png',
