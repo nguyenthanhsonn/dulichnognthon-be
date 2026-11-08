@@ -76,7 +76,7 @@ Content-Type: application/json
 - Khi còn phiên OTP chưa xác thực, gọi lại `send` trả **409**; frontend chuyển sang màn hình nhập mã và dùng `/auth/otp/resend`. Phiên hết hạn mới được gửi đầu lại. Sau verify thành công, lần đăng nhập mới được gửi đầu ngay, không chờ một giờ/cooldown của phiên đã hoàn tất; vẫn chịu hạn mức chống spam.
 - OTP ngẫu nhiên 6 chữ số, hiệu lực tối đa 300 giây và không vượt hạn cuối phiên OTP, chỉ dùng một lần và chỉ lưu HMAC/hash.
 - Không trả OTP. Trả thêm `remainingResends` (3 sau SEND) và `flowExpiresIn` (1800 giây khi tạo phiên). `retryAfter` là thời gian chờ resend, không bảo đảm còn quota chống spam.
-- Mã mới vô hiệu mã cũ. Gửi lỗi sau khi challenge đã được tạo vẫn tính quota và challenge đó bị vô hiệu.
+- Mã mới vô hiệu mã cũ sau khi dịch vụ email xác nhận gửi. Gửi lỗi không tính quota email hay cooldown.
 - Hạn mức chống spam độc lập: mặc định **10 lần gửi/email trong cửa sổ trượt một giờ**, tính cả SEND và RESEND của mọi phiên, kể cả phiên đã xác thực. Hoàn tất/đóng phiên không xóa hạn mức này.
 - Chưa tạo tài khoản ở bước gửi. HTTP 202 nghĩa là Gmail nhận lệnh gửi, không bảo đảm thư đã vào Inbox.
 - Giới hạn IP dùng chung send + resend: tổng 5 request/phút. Client dùng `expiresIn`, `retryAfter` từ response thay vì hardcode.
@@ -116,7 +116,7 @@ Email dùng cùng validation và chuẩn hóa với `/auth/otp/send`. Không c�
 - Tối đa **3 lần RESEND/phiên OTP**, ngoài 1 lần SEND đầu. Dùng hết 3 lần thì bị 429; gọi `send` không reset được phiên đang chờ. Sau verify thành công, lần đăng nhập mới có lại 3 lượt resend; hạn mức chống spam 10/email/giờ vẫn tính tổng mọi phiên.
 - Cách lần gửi trước (send hoặc resend) ít nhất **60 giây**.
 - Sinh OTP ngẫu nhiên mới, vô hiệu mã cũ. Mã mới có tối đa 3 lần nhập sai, kể cả mã trước đã hết hạn hoặc bị khóa do nhập sai.
-- Gửi lỗi sau khi đã tạo challenge vẫn tính một lần resend; challenge đó bị vô hiệu.
+- Gửi lại thất bại giữ mã cũ và không tính lượt resend, quota email hay cooldown.
 - Không nhận `requestType`, `flowId`, `userId` hoặc số lượt do client truyền. Backend quản lý phiên đang chờ theo email và khóa bằng database; không cần đổi request hiện tại.
 - Send và resend dùng chung giới hạn IP 5 request/phút.
 

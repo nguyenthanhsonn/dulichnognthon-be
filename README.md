@@ -16,6 +16,9 @@ và cấu trúc chia theo module nghiệp vụ.
 | Authentication | Quản lý tài khoản, token và phiên đăng nhập                                 |
 
 Người dùng đăng nhập bằng email và mã xác thực OTP gửi tới hộp thư.
+Gmail API dùng tài khoản khả dụng đầu tiên trong `GMAIL_ACCOUNTS` và chuyển tiếp
+khi Gmail từ chối vì quota. Ngưỡng mềm mặc định là 450 lượt được Gmail chấp nhận
+mỗi tài khoản mỗi ngày giờ Pacific. Xem [cấu hình gửi OTP](src/modules/AUTH.md).
 
 ## Công nghệ
 

@@ -100,7 +100,7 @@ export class AuthService {
     // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
     this.mail.assertAvailable();
     const otp = randomInt(0, 1000000).toString().padStart(6, '0');
-    const { challenge, remainingResends } = await this.database.transaction(
+    return this.database.transaction<SendOtpResponseDto>(
       'READ COMMITTED',
       async (tx) => {
         await this.emailLock(tx, email);
@@ -109,7 +109,7 @@ export class AuthService {
           where: { email },
           order: { createdAt: 'DESC', id: 'DESC' },
         });
-        // verifiedAt kết thúc phiên, consumedAt chỉ kết thúc một mã (đã gửi lại/sai/gửi lỗi).
+        // verifiedAt kết thúc phiên, consumedAt chỉ kết thúc một mã.
         const activeFlow =
           latest?.flowId &&
           latest.flowExpiresAt &&
@@ -167,18 +167,42 @@ export class AuthService {
           );
         }
         const flowId = activeFlow?.flowId ?? randomUUID();
+        const user = await tx.findOneBy(User, { email });
+        const id = randomUUID();
+        // Giữ khóa theo email đến khi provider xác nhận để yêu cầu đồng thời không gửi trùng.
+        await this.mail.sendOtp(email, otp, {
+          challengeId: id,
+          expiresInSeconds: Math.min(
+            this.settings.otpTtlSeconds,
+            activeFlow
+              ? Math.ceil(
+                  (activeFlow.flowExpiresAt!.getTime() - now.getTime()) / 1000,
+                )
+              : this.settings.otpFlowTtlSeconds,
+          ),
+        });
+        const sentAt = await this.now(tx);
         const flowExpiresAt =
           activeFlow?.flowExpiresAt ??
-          new Date(now.getTime() + this.settings.otpFlowTtlSeconds * 1000);
-        const user = await tx.findOneBy(User, { email });
-        // Mã mới thay thế mọi mã trước đó; không tạo tài khoản ở bước gửi email.
+          new Date(sentAt.getTime() + this.settings.otpFlowTtlSeconds * 1000);
+        if (flowExpiresAt <= sentAt)
+          throw new BadRequestException(
+            'Không có phiên OTP đang chờ hoặc phiên đã kết thúc. Vui lòng gửi OTP mới.',
+          );
+
+        // Chỉ thay mã cũ và tính lượt gửi khi provider đã chấp nhận mã mới.
+        const expiresAt = new Date(
+          Math.min(
+            sentAt.getTime() + this.settings.otpTtlSeconds * 1000,
+            flowExpiresAt.getTime(),
+          ),
+        );
         await tx.update(
           OtpCode,
           { email, consumedAt: IsNull() },
-          { consumedAt: now },
+          { consumedAt: sentAt },
         );
-        const id = randomUUID();
-        const challenge = await tx.save(
+        await tx.save(
           OtpCode,
           tx.create(OtpCode, {
             id,
@@ -188,55 +212,24 @@ export class AuthService {
             flowExpiresAt,
             userId: user?.id ?? null,
             codeHash: this.otpHash(id, email, otp),
-            createdAt: now,
-            expiresAt: new Date(
-              Math.min(
-                now.getTime() + this.settings.otpTtlSeconds * 1000,
-                flowExpiresAt.getTime(),
-              ),
-            ),
+            createdAt: sentAt,
+            expiresAt,
           }),
         );
         return {
-          challenge,
+          message: 'OTP đã được gửi.',
+          expiresIn: Math.ceil((expiresAt.getTime() - sentAt.getTime()) / 1000),
+          retryAfter: this.settings.otpCooldownSeconds,
           remainingResends:
             this.settings.otpMaxResends -
             resends -
             (requestType === 'RESEND' ? 1 : 0),
+          flowExpiresIn: Math.ceil(
+            (flowExpiresAt.getTime() - sentAt.getTime()) / 1000,
+          ),
         };
       },
     );
-    try {
-      // Gọi email provider ngoài transaction để không giữ khóa khi chờ mạng.
-      await this.mail.sendOtp(email, otp, {
-        challengeId: challenge.id,
-        expiresInSeconds: Math.ceil(
-          (challenge.expiresAt.getTime() - challenge.createdAt.getTime()) /
-            1000,
-        ),
-      });
-    } catch (error) {
-      await this.database
-        .getRepository(OtpCode)
-        .update(
-          { id: challenge.id, consumedAt: IsNull() },
-          { consumedAt: new Date() },
-        );
-      throw error;
-    }
-    // Không trả OTP ở bất kỳ môi trường nào, kể cả development.
-    return {
-      message: 'OTP đã được gửi.',
-      expiresIn: Math.ceil(
-        (challenge.expiresAt.getTime() - challenge.createdAt.getTime()) / 1000,
-      ),
-      retryAfter: this.settings.otpCooldownSeconds,
-      remainingResends,
-      flowExpiresIn: Math.ceil(
-        (challenge.flowExpiresAt!.getTime() - challenge.createdAt.getTime()) /
-          1000,
-      ),
-    };
   }
 
   async verifyOtp(email: string, otp: string): Promise<TokenResponseDto> {

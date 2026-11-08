@@ -1,4 +1,6 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import {
+  BadRequestException,
   Inject,
   Injectable,
   Logger,
@@ -25,7 +27,11 @@ type GmailAccountSettings = GmailApiSettings & {
 type GmailAccount = {
   from: string;
   mailer: GmailApiMailer;
-  availableAt: number;
+  exhaustedUntil: number;
+  disabled: boolean;
+  sentToday: number;
+  dailyResetAt: number;
+  inFlight: number;
   checkQuotaBounces?: boolean;
   nextBounceCheckAt: number;
   bounceCheck?: Promise<void>;
@@ -41,8 +47,43 @@ type MailSettings = { from: string } & (
       pass: string;
     }
   | { provider: 'resend'; apiKey: string }
-  | { provider: 'gmail_api'; accounts: GmailAccountSettings[] }
+  | {
+      provider: 'gmail_api';
+      accounts: GmailAccountSettings[];
+      dailySoftLimit: number;
+    }
 );
+
+const dayMs = 24 * 60 * 60 * 1000;
+const pacificDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+});
+const pacificHour = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Los_Angeles',
+  hour: 'numeric',
+  hourCycle: 'h23',
+});
+
+function nextPacificMidnight(now: number): number {
+  const parts = pacificDate.formatToParts(now);
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+  const day = Number(parts.find((part) => part.type === 'day')?.value);
+  // 08:00 UTC là 00:00 PST hoặc 01:00 PDT của ngày kế tiếp.
+  const standardMidnight = Date.UTC(year, month - 1, day + 1, 8);
+  return (
+    standardMidnight - Number(pacificHour.format(standardMidnight)) * 3600000
+  );
+}
+
+function refreshGmailDay(account: GmailAccount, now: number): void {
+  if (account.dailyResetAt > now) return;
+  account.dailyResetAt = nextPacificMidnight(now);
+  account.sentToday = 0;
+}
 
 /** Production Render Free dùng Gmail API qua HTTPS. Không log OTP/credential. */
 @Injectable()
@@ -50,11 +91,20 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
   private readonly logger = new Logger(OtpEmailService.name);
   private smtp?: Transporter<SMTPTransport.SentMessageInfo>;
   private gmail?: GmailAccount[];
-  private gmailIndex = 0;
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
   private settings(): MailSettings {
     const provider = this.config.get<string>('EMAIL_PROVIDER') || 'gmail_api';
+    const dailySoftLimit = Number(
+      this.config.get<string>('GMAIL_DAILY_SOFT_LIMIT')?.trim() || 450,
+    );
+    if (
+      provider === 'gmail_api' &&
+      (!Number.isSafeInteger(dailySoftLimit) || dailySoftLimit < 1)
+    )
+      throw new ServiceUnavailableException(
+        'GMAIL_DAILY_SOFT_LIMIT không hợp lệ.',
+      );
     const accountJson = this.config.get<string>('GMAIL_ACCOUNTS')?.trim();
     if (provider === 'gmail_api' && accountJson) {
       try {
@@ -64,12 +114,9 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
         const accounts = values.map((value: unknown) => {
           if (!value || typeof value !== 'object') throw new Error();
           const account = value as Record<string, unknown>;
-          const fields = [
-            'from',
-            'clientId',
-            'clientSecret',
-            'refreshToken',
-          ] as const;
+          const address = account.email ?? account.from;
+          if (typeof address !== 'string') throw new Error();
+          const fields = ['clientId', 'clientSecret', 'refreshToken'] as const;
           for (const field of fields) {
             if (typeof account[field] !== 'string' || !account[field].trim())
               throw new Error();
@@ -80,7 +127,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             typeof checkQuotaBounces !== 'boolean'
           )
             throw new Error();
-          const from = (account.from as string).trim();
+          const from = address.trim();
           if (!isEmail(from) || seen.has(from.toLowerCase())) throw new Error();
           seen.add(from.toLowerCase());
           return {
@@ -91,7 +138,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             checkQuotaBounces,
           };
         });
-        return { provider, from: accounts[0].from, accounts };
+        return { provider, from: accounts[0].from, accounts, dailySoftLimit };
       } catch {
         throw new ServiceUnavailableException('GMAIL_ACCOUNTS không hợp lệ.');
       }
@@ -117,6 +164,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
         provider,
         from,
         accounts: [{ from, clientId, clientSecret, refreshToken }],
+        dailySoftLimit,
       };
     }
     if (provider === 'resend') {
@@ -163,7 +211,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
 
   private async checkGmailQuotaBounce(
     account: GmailAccount,
-    index: number,
+    label: string,
     subject: string,
     challengeId: string,
   ): Promise<void> {
@@ -174,15 +222,15 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
       .quotaBounceUntil(subject)
       .then((until) => {
         if (until <= Date.now()) return;
-        account.availableAt = Math.max(account.availableAt, until);
+        account.exhaustedUntil = Math.max(account.exhaustedUntil, until);
         this.logger.warn(
-          `Gmail quota bounce detected account=${index + 1} challengeId=${challengeId} pausedUntil=${new Date(account.availableAt).toISOString()}`,
+          `Gmail quota bounce detected ${label} challengeId=${challengeId} pausedUntil=${new Date(account.exhaustedUntil).toISOString()}`,
         );
       })
       .catch((error: unknown) => {
         const failure = error instanceof GmailDeliveryError ? error : undefined;
         this.logger.warn(
-          `Gmail quota check failed account=${index + 1} challengeId=${challengeId} status=${failure?.status ?? 'unknown'} reason=${failure?.reason ?? 'unknown'}`,
+          `Gmail quota check failed ${label} challengeId=${challengeId} status=${failure?.status ?? 'unknown'} reason=${failure?.reason ?? 'unknown'}`,
         );
       })
       .finally(() => {
@@ -228,53 +276,13 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
         if (!accepted || info.rejected?.length)
           throw new Error('Recipient not accepted');
       } else if (settings.provider === 'gmail_api') {
-        this.gmail ??= settings.accounts.map((account) => ({
-          from: account.from,
-          mailer: new GmailApiMailer(account),
-          availableAt: 0,
-          checkQuotaBounces: account.checkQuotaBounces,
-          nextBounceCheckAt: 0,
-        }));
-        const start = this.gmailIndex;
-        let sent = false;
-        for (let offset = 0; offset < this.gmail.length; offset++) {
-          const index = (start + offset) % this.gmail.length;
-          const account = this.gmail[index];
-          if (account.availableAt > Date.now()) continue;
-          await this.checkGmailQuotaBounce(
-            account,
-            index,
-            subject,
-            context.challengeId,
-          );
-          if (account.availableAt > Date.now()) continue;
-          try {
-            await account.mailer.send(account.from, email, subject, text);
-            if (index !== start)
-              this.logger.log(
-                `Gmail OTP accepted after switch fromAccount=${start + 1} account=${index + 1} challengeId=${context.challengeId}`,
-              );
-            this.gmailIndex = index;
-            sent = true;
-            break;
-          } catch (error) {
-            if (error instanceof GmailDeliveryError) {
-              this.logger.warn(
-                `Gmail delivery failed account=${index + 1} challengeId=${context.challengeId} stage=${error.stage} status=${error.status ?? 'unknown'} reason=${error.reason}`,
-              );
-            }
-            const cooldown =
-              error instanceof GmailDeliveryError
-                ? error.accountCooldownMs
-                : undefined;
-            if (cooldown === undefined) throw error;
-            account.availableAt = Math.max(
-              account.availableAt,
-              Date.now() + cooldown,
-            );
-          }
-        }
-        if (!sent) throw new Error('All Gmail accounts unavailable');
+        await this.sendGmail(
+          settings,
+          email,
+          subject,
+          text,
+          context.challengeId,
+        );
       } else {
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -306,12 +314,114 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
           throw new Error('Email request not accepted');
         }
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof GmailDeliveryError && error.kind === 'recipient')
+        throw new BadRequestException('Địa chỉ email người nhận không hợp lệ.');
       // Không trả lỗi SMTP/API gốc vì có thể chứa email, OTP hoặc credential.
       throw new ServiceUnavailableException(
         'Không thể gửi email lúc này. Vui lòng thử lại sau.',
       );
     }
+  }
+
+  private async sendGmail(
+    settings: Extract<MailSettings, { provider: 'gmail_api' }>,
+    email: string,
+    subject: string,
+    text: string,
+    challengeId: string,
+  ): Promise<void> {
+    this.gmail ??= settings.accounts.map((account) => ({
+      from: account.from,
+      mailer: new GmailApiMailer(account),
+      exhaustedUntil: 0,
+      disabled: false,
+      sentToday: 0,
+      dailyResetAt: 0,
+      inFlight: 0,
+      checkQuotaBounces: account.checkQuotaBounces,
+      nextBounceCheckAt: 0,
+    }));
+
+    for (const [index, account] of this.gmail.entries()) {
+      const label = `account=${index + 1} sender=${account.from[0]}***@${account.from.split('@').at(-1)}`;
+      const accountLog = `${label} challengeId=${challengeId}`;
+      const now = Date.now();
+      refreshGmailDay(account, now);
+      if (account.disabled || account.exhaustedUntil > now) continue;
+      if (account.sentToday + account.inFlight >= settings.dailySoftLimit)
+        continue;
+
+      // Giữ một chỗ trước khi chờ mạng để các request đồng thời không vượt ngưỡng mềm.
+      account.inFlight++;
+      try {
+        await this.checkGmailQuotaBounce(account, label, subject, challengeId);
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          if (account.disabled || account.exhaustedUntil > Date.now()) break;
+          try {
+            const id = await account.mailer.send(
+              account.from,
+              email,
+              subject,
+              text,
+            );
+            const acceptedAt = Date.now();
+            refreshGmailDay(account, acceptedAt);
+            account.sentToday++;
+            const messageId = /^[a-zA-Z0-9_-]{1,128}$/.test(id)
+              ? id
+              : '[redacted]';
+            this.logger.log(
+              `Gmail OTP accepted ${accountLog} attempt=${attempt} messageId=${messageId}`,
+            );
+            if (account.sentToday === settings.dailySoftLimit)
+              this.logger.log(
+                `Gmail account exhausted ${accountLog} reason=soft_limit until=${new Date(account.dailyResetAt).toISOString()}`,
+              );
+            return;
+          } catch (error) {
+            if (!(error instanceof GmailDeliveryError)) throw error;
+            const now = Date.now();
+            const retry = error.kind === 'transient' && attempt < 3;
+            let action = 'stop';
+            switch (error.kind) {
+              case 'auth':
+                account.disabled = true;
+                action = 'disable_and_switch';
+                break;
+              case 'daily_quota':
+              case 'rate_limit': {
+                const until =
+                  error.kind === 'daily_quota'
+                    ? Math.max(
+                        nextPacificMidnight(now),
+                        now + (error.retryAfterMs ?? 0),
+                      )
+                    : now + (error.retryAfterMs ?? 60000);
+                account.exhaustedUntil = Math.max(
+                  account.exhaustedUntil,
+                  Math.min(until, now + dayMs),
+                );
+                action = 'exhaust_and_switch';
+                break;
+              }
+              case 'transient':
+                action = retry ? 'retry' : 'switch';
+                break;
+            }
+            this.logger.warn(
+              `Gmail delivery failed ${accountLog} attempt=${attempt} stage=${error.stage} status=${error.status ?? 'unknown'} reason=${error.reason} action=${action}`,
+            );
+            if (action === 'stop') throw error;
+            if (!retry) break;
+            await delay(250 * 2 ** (attempt - 1));
+          }
+        }
+      } finally {
+        account.inFlight--;
+      }
+    }
+    throw new Error('All Gmail accounts unavailable');
   }
 
   onModuleDestroy(): void {

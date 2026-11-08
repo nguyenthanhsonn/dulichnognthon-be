@@ -578,7 +578,7 @@ it('rejects access and refresh for a blocked user', async () => {
     .expect(401);
 });
 
-it('consumes a challenge if the email provider fails', async () => {
+it('lets an initial OTP send retry immediately when the provider fails', async () => {
   const number = email();
   mail.sendOtp.mockRejectedValueOnce(
     new ServiceUnavailableException('email unavailable'),
@@ -587,8 +587,35 @@ it('consumes a challenge if the email provider fails', async () => {
     .post('/auth/otp/send')
     .send({ email: number })
     .expect(503);
+  expect(await database.getRepository(OtpCode).countBy({ email: number })).toBe(
+    0,
+  );
+  await request(app.getHttpServer())
+    .post('/auth/otp/send')
+    .send({ email: number })
+    .expect(202);
+});
+
+it('keeps the previous OTP active and preserves the resend allowance when delivery fails', async () => {
+  const address = email();
+  await send(address);
+  const repo = database.getRepository(OtpCode);
+  await repo.update(
+    { email: address },
+    { createdAt: new Date(Date.now() - 61000) },
+  );
+  const original = await repo.findOneByOrFail({ email: address });
+  mail.sendOtp.mockRejectedValueOnce(
+    new ServiceUnavailableException('email unavailable'),
+  );
+  await request(app.getHttpServer())
+    .post('/auth/otp/resend')
+    .send({ email: address })
+    .expect(503);
+  expect(await repo.countBy({ email: address })).toBe(1);
   expect(
-    (await database.getRepository(OtpCode).findOneByOrFail({ email: number }))
-      .consumedAt,
-  ).not.toBeNull();
+    (await repo.findOneByOrFail({ id: original.id })).consumedAt,
+  ).toBeNull();
+  const retry = await send(address, '/auth/otp/resend');
+  expect(retry.response.body.remainingResends).toBe(2);
 });

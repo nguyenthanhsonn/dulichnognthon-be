@@ -25,56 +25,57 @@ interface GmailQuotaNotice {
 export type GmailDeliveryStage =
   'oauth' | 'compose' | 'send' | 'acceptance' | 'bounce';
 
+type GmailFailure =
+  'daily_quota' | 'rate_limit' | 'auth' | 'transient' | 'recipient' | 'unknown';
+
+const oauthRejections = [
+  'invalid_grant',
+  'invalid_client',
+  'unauthorized_client',
+  'access_denied',
+];
+const sendAuthRejections = [
+  'accessNotConfigured',
+  'insufficientPermissions',
+  'domainPolicy',
+  'authError',
+  'forbidden',
+];
+const rateLimits = ['userRateLimitExceeded', 'rateLimitExceeded'];
+const dailyLimits = ['dailyLimitExceeded', 'quotaExceeded'];
+const networkErrors = [
+  'TimeoutError',
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'EPIPE',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+];
+
 /** Chỉ chứa metadata cho phép log; không giữ response, message hay cause gốc. */
 export class GmailDeliveryError extends Error {
   constructor(
     readonly stage: GmailDeliveryStage,
     readonly reason: string,
     readonly status?: number,
+    readonly kind: GmailFailure = 'unknown',
+    readonly retryAfterMs?: number,
   ) {
     super('Gmail delivery failed');
   }
-
-  /** Google đã từ chối rõ ràng, chưa nhận lệnh gửi: có thể thử tài khoản khác. */
-  get accountCooldownMs(): number | undefined {
-    const oauthRejected =
-      this.stage === 'oauth' &&
-      this.status !== undefined &&
-      [400, 401, 403].includes(this.status) &&
-      [
-        'invalid_grant',
-        'invalid_client',
-        'unauthorized_client',
-        'access_denied',
-      ].includes(this.reason);
-    const sendRejected =
-      this.stage === 'send' &&
-      (this.status === 401 ||
-        (this.status === 403 &&
-          [
-            'accessNotConfigured',
-            'insufficientPermissions',
-            'domainPolicy',
-            'authError',
-            'forbidden',
-          ].includes(this.reason)));
-    return oauthRejected || sendRejected ? 5 * 60000 : undefined;
-  }
 }
 
-/** Lỗi quota giữ thời gian nghỉ do Google yêu cầu. */
-export class GmailQuotaError extends GmailDeliveryError {
-  constructor(
-    readonly retryAfterMs: number,
-    reason = 'quota',
-    status?: number,
-  ) {
-    super('send', reason, status);
-  }
-
-  override get accountCooldownMs(): number {
-    return this.retryAfterMs;
-  }
+function retryAfterMs(header: unknown): number | undefined {
+  if (typeof header !== 'string' && typeof header !== 'number') return;
+  const seconds = Number(header);
+  const delay = Number.isFinite(seconds)
+    ? seconds * 1000
+    : Date.parse(String(header)) - Date.now();
+  if (Number.isFinite(delay) && delay > 0) return Math.max(1000, delay);
 }
 
 function deliveryError(
@@ -83,96 +84,122 @@ function deliveryError(
 ): GmailDeliveryError {
   const source = error as {
     code?: unknown;
-    response?: { status?: unknown; data?: { error?: unknown } };
+    cause?: { code?: unknown };
+    response?: {
+      status?: unknown;
+      data?: { error?: unknown };
+      headers?: {
+        get?: (name: string) => string | null;
+        'retry-after'?: unknown;
+      };
+    };
   } | null;
-  const status = source?.response?.status;
-  const apiError = source?.response?.data?.error;
-  const reasons =
-    typeof apiError === 'object' &&
-    apiError !== null &&
-    'errors' in apiError &&
-    Array.isArray(apiError.errors)
-      ? apiError.errors.map((item: unknown) =>
-          item && typeof item === 'object' && 'reason' in item
-            ? item.reason
-            : undefined,
-        )
-      : [];
-  const known = [
-    'invalid_grant',
-    'invalid_client',
-    'unauthorized_client',
-    'access_denied',
-    'authError',
-    'insufficientPermissions',
-    'forbidden',
-    'domainPolicy',
-    'userRateLimitExceeded',
-    'rateLimitExceeded',
-    'dailyLimitExceeded',
-    'quotaExceeded',
-    'accessNotConfigured',
-    'backendError',
-    'ETIMEDOUT',
-    'ECONNRESET',
-    'ENOTFOUND',
-    'EAI_AGAIN',
-    'ECONNREFUSED',
+  const response = source?.response;
+  const status =
+    typeof response?.status === 'number' ? response.status : undefined;
+  const apiError = response?.data?.error;
+  const details =
+    typeof apiError === 'object' && apiError !== null
+      ? (apiError as { message?: unknown; errors?: unknown })
+      : undefined;
+  const items = Array.isArray(details?.errors)
+    ? (details.errors as ({
+        reason?: unknown;
+        message?: unknown;
+        location?: unknown;
+      } | null)[])
+    : [];
+  const reasons = [
+    apiError,
+    source?.code,
+    source?.cause?.code,
+    ...items.map((item) => item?.reason),
   ];
-  const reason =
-    known.find(
-      (value) =>
-        value === apiError || value === source?.code || reasons.includes(value),
-    ) ?? 'unknown';
+  const messages = [
+    details?.message,
+    ...items.map((item) => item?.message),
+  ].filter((message): message is string => typeof message === 'string');
+  const dailyReason = dailyLimits.find((reason) => reasons.includes(reason));
+  const rateReason = rateLimits.find((reason) => reasons.includes(reason));
+  const oauthReason = oauthRejections.find((reason) =>
+    reasons.includes(reason),
+  );
+  const sendAuthReason = sendAuthRejections.find((reason) =>
+    reasons.includes(reason),
+  );
+  const networkReason = networkErrors.find((reason) =>
+    reasons.includes(reason),
+  );
+
+  if (status === 401 || (stage === 'oauth' && oauthReason)) {
+    return new GmailDeliveryError(
+      stage,
+      oauthReason ?? sendAuthReason ?? 'unauthorized',
+      status,
+      'auth',
+    );
+  }
+  if (stage === 'send') {
+    const dailyMessage = messages.some((message) =>
+      /daily user sending quota exceeded|sending limit/i.test(message),
+    );
+    const daily =
+      dailyMessage || ((status === 403 || status === 429) && dailyReason);
+    if (daily || status === 429 || (status === 403 && rateReason)) {
+      const retryAfter = retryAfterMs(
+        response?.headers?.get?.('retry-after') ??
+          response?.headers?.['retry-after'],
+      );
+      return new GmailDeliveryError(
+        stage,
+        daily
+          ? (dailyReason ?? 'dailySendingLimit')
+          : (rateReason ?? 'tooManyRequests'),
+        status,
+        daily ? 'daily_quota' : 'rate_limit',
+        retryAfter,
+      );
+    }
+    if (status === 403 && sendAuthReason)
+      return new GmailDeliveryError(stage, sendAuthReason, status, 'auth');
+    if (
+      status === 400 &&
+      (reasons.includes('invalidRecipient') ||
+        items.some(
+          (item) =>
+            typeof item?.location === 'string' &&
+            /^(to|recipient)$/i.test(item.location),
+        ) ||
+        messages.some((message) =>
+          /invalid (?:to header|recipient|email address)|recipient address (?:is )?(?:required|invalid)|(?:recipient|to header).*(?:invalid|malformed)/i.test(
+            message,
+          ),
+        ))
+    ) {
+      return new GmailDeliveryError(
+        stage,
+        'invalidRecipient',
+        status,
+        'recipient',
+      );
+    }
+  }
+  if (
+    (status !== undefined && status >= 500 && status <= 599) ||
+    (status === undefined && (stage === 'send' || networkReason))
+  ) {
+    return new GmailDeliveryError(
+      stage,
+      networkReason ?? (status === undefined ? 'networkError' : 'backendError'),
+      status,
+      'transient',
+    );
+  }
   return new GmailDeliveryError(
     stage,
-    reason,
-    typeof status === 'number' &&
-      Number.isInteger(status) &&
-      status >= 100 &&
-      status <= 599
-      ? status
-      : undefined,
+    sendAuthReason ?? oauthReason ?? networkReason ?? 'unknown',
+    status,
   );
-}
-
-function quotaRetryAfter(error: unknown): number | undefined {
-  const response = (
-    error as {
-      response?: {
-        status?: number;
-        data?: { error?: { errors?: { reason?: string }[] } };
-        headers?: {
-          get?: (name: string) => string | null;
-          [key: string]: unknown;
-        };
-      };
-    } | null
-  )?.response;
-  const reasons = response?.data?.error?.errors ?? [];
-  if (
-    response?.status !== 429 &&
-    !(
-      response?.status === 403 &&
-      reasons.some(({ reason }) =>
-        [
-          'userRateLimitExceeded',
-          'rateLimitExceeded',
-          'dailyLimitExceeded',
-        ].includes(reason ?? ''),
-      )
-    )
-  )
-    return undefined;
-  const header =
-    response?.headers?.get?.('retry-after') ??
-    response?.headers?.['retry-after'];
-  if (typeof header !== 'string' && typeof header !== 'number') return 60000;
-  const seconds = Number(header);
-  const delay = Number.isFinite(seconds)
-    ? seconds * 1000
-    : Date.parse(String(header)) - Date.now();
-  return Number.isFinite(delay) && delay > 0 ? Math.max(1000, delay) : 60000;
 }
 
 /** Gửi qua HTTPS. Chỉ truy cập hộp thư khi được bật kiểm tra thông báo hạn mức. */
@@ -265,7 +292,7 @@ export class GmailApiMailer {
     to: string,
     subject: string,
     text: string,
-  ): Promise<void> {
+  ): Promise<string> {
     let token: string | null | undefined;
     try {
       ({ token } = await this.oauth.getAccessToken());
@@ -289,11 +316,9 @@ export class GmailApiMailer {
     } catch {
       throw new GmailDeliveryError('compose', 'mime_error');
     }
-    // Không tự retry lệnh gửi: timeout có thể xảy ra sau khi Gmail đã nhận thư.
-    let result: unknown;
+    let response;
     try {
-      // Dùng cùng HTTP client Google đã kiểm tra gửi thật thành công.
-      const response = await this.oauth.transporter.request({
+      response = await this.oauth.transporter.request<{ id?: unknown }>({
         url: `${gmailMessagesUrl}/send`,
         method: 'POST',
         headers: {
@@ -304,27 +329,22 @@ export class GmailApiMailer {
         timeout: 15000,
         retry: false,
       });
-      result = response.data;
     } catch (error) {
-      const retryAfterMs = quotaRetryAfter(error);
-      const failure = deliveryError('send', error);
-      if (retryAfterMs !== undefined)
-        throw new GmailQuotaError(retryAfterMs, failure.reason, failure.status);
-      // 401: lần gửi sau phải lấy token mới; không gửi lại thư trong request hiện tại.
-      if (
-        (error as { response?: { status?: number } }).response?.status === 401
-      )
-        this.oauth.credentials.access_token = undefined;
-      throw failure;
+      throw deliveryError('send', error);
     }
-    if (
-      !result ||
-      typeof result !== 'object' ||
-      !('id' in result) ||
-      typeof result.id !== 'string' ||
-      !result.id
-    ) {
-      throw new GmailDeliveryError('acceptance', 'missing_message_id');
-    }
+    if (response.status !== 200)
+      throw new GmailDeliveryError(
+        'acceptance',
+        'unexpected_status',
+        response.status,
+      );
+    const id = response.data?.id;
+    if (typeof id !== 'string' || !id.trim())
+      throw new GmailDeliveryError(
+        'acceptance',
+        'missing_message_id',
+        response.status,
+      );
+    return id;
   }
 }

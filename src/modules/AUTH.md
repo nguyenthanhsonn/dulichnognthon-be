@@ -7,7 +7,7 @@ Không gửi SMS.
 
 ## Gmail API cho local và Render Free
 
-Production dùng **Gmail API qua HTTPS**, tài khoản gửi `mediaqtm@gmail.com`.
+Production dùng **Gmail API qua HTTPS**, với `mediaqtm@gmail.com` là địa chỉ cấu hình đơn mặc định.
 `render.yaml` chọn `EMAIL_PROVIDER=gmail_api`, gói Web Service `free`.
 Không dùng App Password hoặc cổng SMTP; không cần domain gửi riêng.
 Thay đổi repo chưa triển khai hoặc thay đổi gói thực tế trong Render Dashboard.
@@ -82,49 +82,45 @@ Các biến `SMTP_*` và `RESEND_API_KEY` không được dùng khi provider là
 #### Nhiều tài khoản Gmail và chuyển khi hết quota
 
 Đặt `EMAIL_PROVIDER=gmail_api` và thêm `GMAIL_ACCOUNTS` trong Render Environment
-hoặc `.env`. Giá trị là mảng JSON, thứ tự tài khoản là thứ tự ưu tiên. Ví dụ `.env`:
+hoặc `.env`. Giá trị là mảng JSON theo thứ tự ưu tiên. Ví dụ `.env`:
 
 ```dotenv
-GMAIL_ACCOUNTS='[{"from":"xelon1929@gmail.com","clientId":"CLIENT_ID_MOI","clientSecret":"SECRET_MOI","refreshToken":"TOKEN_XELON"},{"from":"backup@gmail.com","clientId":"CLIENT_ID_DU_PHONG","clientSecret":"SECRET_DU_PHONG","refreshToken":"TOKEN_DU_PHONG"}]'
+GMAIL_ACCOUNTS='[{"email":"primary@gmail.com","clientId":"CLIENT_ID","clientSecret":"CLIENT_SECRET","refreshToken":"REFRESH_TOKEN"},{"email":"backup@gmail.com","clientId":"BACKUP_ID","clientSecret":"BACKUP_SECRET","refreshToken":"BACKUP_TOKEN"}]'
+GMAIL_DAILY_SOFT_LIMIT=450
 ```
 
-Trong Render nhập JSON trực tiếp, không bọc thêm dấu nháy đơn. Thay các giá trị
-mẫu bằng thông tin thật, lưu và redeploy. `from` phải khớp tài khoản đã cấp token.
-Nếu `mediaqtm@gmail.com` đang hết quota, đặt `xelon1929@gmail.com` đầu danh sách;
-chỉ thêm mediaqtm sau khi đã thay credential bị lộ. Không commit bí mật vào repo.
+Trong Render nhập JSON trực tiếp. `email` phải khớp tài khoản đã cấp token. Tên
+trường cũ `from` vẫn dùng được. Khi `GMAIL_ACCOUNTS` có giá trị, nó thay cấu hình
+`MAIL_FROM` và ba biến OAuth Gmail đơn. Nếu danh sách trống hoặc chưa đặt biến,
+backend dùng cấu hình Gmail đơn; JSON lỗi, mảng rỗng `[]` hoặc trùng email trả 503.
 
-Khi `GMAIL_ACCOUNTS` có giá trị, backend bỏ qua `MAIL_FROM` và ba biến `GMAIL_*`
-đơn. JSON sai hoặc email trùng sẽ trả 503 trước khi tạo challenge; không âm thầm
-dùng cấu hình cũ. Nếu biến trống/không có, cấu hình Gmail đơn vẫn hoạt động.
+Mỗi lần gửi bắt đầu ở tài khoản khả dụng đầu tiên. HTTP 200 kèm message ID là
+điều kiện ghi nhận Gmail đã chấp nhận thư. Mỗi tài khoản có ngưỡng mềm
+`GMAIL_DAILY_SOFT_LIMIT` (số nguyên dương, mặc định 450), đếm lượt được Gmail
+chấp nhận và reset vào 00:00 giờ Pacific (`America/Los_Angeles`).
 
-Backend chuyển sang tài khoản kế tiếp ngay trong lần gửi OTP khi Gmail trả 429
-hoặc 403 có reason `userRateLimitExceeded`, `rateLimitExceeded`, `dailyLimitExceeded`.
-Tài khoản bị chặn được nghỉ theo header `Retry-After`, mặc định 60 giây nếu không
-có header hợp lệ. Các lần gửi tiếp theo tiếp tục dùng tài khoản đã gửi thành công;
-khi tài khoản đó hết quota, backend tìm vòng qua danh sách, kể cả tài khoản cũ đã
-hết thời gian nghỉ. Mỗi tài khoản được thử tối đa một lần trong một request.
-Nếu tất cả đang bị chặn, trả 503 chung và không gửi thêm request tới Google.
+- **Quota** — HTTP 429, hoặc 403 với `userRateLimitExceeded`,
+  `rateLimitExceeded`, `dailyLimitExceeded`, `quotaExceeded`, chuyển sang tài khoản
+  tiếp theo ngay trong request. Lỗi rate limit nghỉ theo `Retry-After`, mặc định
+  60 giây. Quota ngày, kể cả lỗi có nội dung báo giới hạn gửi, nghỉ tới 00:00 giờ
+  Pacific hoặc lâu hơn theo `Retry-After`, tối đa 24 giờ kể từ lúc nhận lỗi.
+  Đây là mốc thử lại của backend. Gmail có thể tiếp tục từ chối nếu hạn mức
+  thực tế của tài khoản chưa được khôi phục.
+- **Xác thực** — HTTP 401, OAuth `invalid_grant`/`invalid_client` hoặc lỗi quyền
+  tài khoản đã nhận diện sẽ vô hiệu tài khoản đến khi tiến trình khởi động lại.
+  Backend thử tài khoản kế tiếp ngay.
+- **Mạng hoặc 5xx** — thử lại tối đa hai lần trên cùng tài khoản, chờ 250 ms rồi
+  500 ms. Sau đó chuyển sang tài khoản kế tiếp và giữ tài khoản cũ khả dụng cho
+  request mới. Timeout sau khi Gmail nhận request có thể khiến người nhận nhận
+  nhiều bản sao của cùng một OTP.
+- **Địa chỉ người nhận bị Gmail từ chối** — trả 400 và dừng. Nếu hết tài khoản
+  khả dụng hoặc Gmail không xác nhận gửi, API trả 503. Chỉ sau khi xác nhận gửi,
+  backend mới lưu challenge, thay OTP cũ và bắt đầu tính cooldown.
 
-Các lỗi tài khoản bị từ chối rõ ràng cũng cho phép chuyển tiếp: OAuth 400/401/403
-với `invalid_grant`, `invalid_client`, `unauthorized_client`, `access_denied`;
-gửi mail trả 401; hoặc 403 với `accessNotConfigured`, `insufficientPermissions`,
-`domainPolicy`, `authError`, `forbidden`. Tài khoản đó nghỉ 5 phút, ghi log lỗi,
-rồi có thể được thử lại khi xoay vòng. Nhờ đó một project chưa bật API không
-chặn toàn bộ các tài khoản phía sau. Vẫn cần sửa cấu hình/token của tài khoản lỗi.
-
-Không chuyển tài khoản khi timeout, lỗi mạng, 5xx, phản hồi thiếu message ID hay
-lỗi không nhận diện được để tránh gửi trùng. Trạng thái nghỉ
-nằm trong bộ nhớ mỗi instance, mất khi restart; không đồng bộ giữa các instance.
-Hạn mức theo Gmail được dùng chung giữa mọi client/API/SMTP của cùng tài khoản;
-quota cấp project vẫn có thể ảnh hưởng nhiều tài khoản cùng project. Gmail nhận
-request không bảo đảm thư đã tới Inbox.
+Bộ đếm và trạng thái chỉ lưu trong bộ nhớ từng instance và reset khi restart.
+Hạn mức Gmail còn phụ thuộc các lượt gửi từ client/API/SMTP khác của cùng tài
+khoản và quota của project. Gmail chấp nhận thư không bảo đảm đã tới Inbox.
 [Quy tắc lỗi và hạn mức Gmail](https://developers.google.com/workspace/gmail/api/guides/handle-errors).
-
-Với cấu hình Gmail đơn, thiếu một trong ba biến OAuth trả 503 trước khi tạo
-challenge; không tự chuyển sang SMTP hoặc Resend. OAuth client tự cache/refresh
-Access Token. Chỉ chuyển tài khoản theo lỗi quota/tài khoản như mô tả ở trên, không retry
-thư khi timeout để tránh gửi trùng. Lỗi gửi vô hiệu challenge và trả lỗi
-chung, không lộ OTP, token hoặc phản hồi Google. Không gửi thư khi khởi động.
 
 #### Chuyển khi Gmail báo hết lượt bằng thư trả lại
 
@@ -150,21 +146,18 @@ Sau khi restart, lần kiểm tra tiếp theo đọc lại các thông báo còn
 24 giờ. Yêu cầu OTP mới hoặc gửi lại qua giao diện kích hoạt bước kiểm tra này.
 
 Render Logs ghi `Gmail quota bounce detected` kèm `account`, `challengeId` và
-`pausedUntil`. `Gmail OTP accepted after switch` cho biết Gmail dự phòng đã
+`pausedUntil`. `Gmail OTP accepted` ghi tài khoản và message ID mỗi lần Gmail
 chấp nhận lệnh gửi. Nếu đọc Inbox lỗi hoặc token thiếu quyền, log
 `Gmail quota check failed` và tiếp tục dùng cơ chế xử lý phản hồi gửi Gmail API.
 Tài khoản chỉ có scope `gmail.send` tiếp tục hoạt động khi bỏ qua tùy chọn này.
 
 ### 5. Kiểm tra thực tế
 
-Nếu gửi thất bại, tìm `Gmail delivery failed` trong Render Logs. Log chỉ chứa
-`account` (vị trí 1-based trong danh sách), `challengeId`, `stage`, `status`,
-`reason` thuộc danh sách cho phép; không chứa địa chỉ nhận, OTP, token, secret
-hoặc phản hồi Google gốc. `stage=oauth reason=invalid_grant` cần cấp quyền lại
-refresh token; `stage=send status=403 reason=insufficientPermissions` cần kiểm
-tra scope `gmail.send`; `status=429` là hạn mức Gmail; `reason=ETIMEDOUT` là
-timeout. Lỗi không nhận diện được ghi `reason=unknown`, không phỏng đoán quota.
-API gửi/gửi lại OTP trả 503 với thông báo tiếng Việt cố định, vẫn ẩn chi tiết gốc.
+Tìm `Gmail OTP accepted` hoặc `Gmail delivery failed` trong Render Logs. Log
+ghi vị trí tài khoản, địa chỉ gửi đã che, `challengeId`, số lần thử và `messageId`
+khi thành công. Lỗi ghi thêm `stage`, `status`, `reason` và hành động như
+`retry`, `exhaust_and_switch` hoặc `disable_and_switch`. Log không chứa OTP,
+địa chỉ người nhận, token, secret hoặc phản hồi gốc từ Google.
 
 Gọi `POST /auth/otp/send` với `{"email":"email-nhan@example.com"}`, kiểm tra Inbox/Spam
 rồi gọi `/auth/otp/verify` với email và mã nhận được. Chỉ gọi bước này với địa chỉ
@@ -237,7 +230,7 @@ Response auth dùng `Cache-Control: no-store`.
   kể cả trước khi user tồn tại. Chỉ tạo user sau khi xác thực thành công.
 - Trong phiên đang chờ, mỗi lần resend cách ít nhất 60 giây và tối đa 3 lần/phiên.
   Quota chống spam độc lập mặc định 10 challenge/email/giờ, tính cả các phiên đã
-  hoàn tất. Gửi lỗi vẫn tính quota. Trả 429 khi vượt giới hạn.
+  hoàn tất. Chỉ lần gửi thành công mới tính quota email. Trả 429 khi vượt giới hạn.
 - Giới hạn IP: send + resend dùng chung 60/phút, verify 120/phút, các route auth khác 60/phút; bộ đếm IP
   nằm trong bộ nhớ mỗi instance. Render đặt `TRUST_PROXY_HOPS=1`, local trực tiếp `0`.
   Ngưỡng IP cho phép nhiều người chung Wi-Fi/NAT; cooldown và quota email trong
