@@ -88,7 +88,7 @@ it('shares SSE queries, pushes changed rankings, catches external writes, stops 
   expect(second).toEqual(first);
   read.mockResolvedValue(rows(1));
   service.invalidate();
-  await vi.advanceTimersByTimeAsync(30);
+  await vi.advanceTimersByTimeAsync(1030);
   expect(first.at(-1)).toMatchObject({
     type: 'rankings',
     data: { totalVotes: 1 },
@@ -142,5 +142,148 @@ it('bounds refresh retries when votes commit continuously instead of starving re
   expect((await service.list()).totalVotes).toBe(2);
   expect(read).toHaveBeenCalledTimes(2);
   expect((await service.list()).totalVotes).toBe(4);
+  service.onModuleDestroy();
+});
+
+it('coalesces a burst without dropping the final committed vote count', async () => {
+  vi.useFakeTimers();
+  const { service, read } = fixture();
+  const events: MessageEvent[] = [];
+  const subscription = service
+    .stream()
+    .subscribe((event) => events.push(event));
+  await vi.advanceTimersByTimeAsync(30);
+  for (let votes = 1; votes <= 10; votes++) {
+    read.mockResolvedValue(rows(votes));
+    service.invalidate();
+    await vi.advanceTimersByTimeAsync(50);
+  }
+  expect(events.filter((event) => event.type === 'rankings')).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(550);
+  expect(events.at(-1)).toMatchObject({
+    type: 'rankings',
+    data: {
+      totalVotes: 10,
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: 'destination-0', voteCount: 10 }),
+      ]),
+    },
+  });
+  expect(read).toHaveBeenCalledTimes(2);
+  subscription.unsubscribe();
+  service.onModuleDestroy();
+});
+
+it('sends metadata first on every compact connection, then self-contained absolute counts', async () => {
+  vi.useFakeTimers();
+  const { service, read } = fixture();
+  const compact: MessageEvent[] = [];
+  const legacy: MessageEvent[] = [];
+  const a = service.stream(true).subscribe((event) => compact.push(event));
+  const b = service.stream().subscribe((event) => legacy.push(event));
+  await vi.advanceTimersByTimeAsync(30);
+  expect(compact[0]).toMatchObject({
+    type: 'rankings',
+    data: {
+      items: expect.arrayContaining([
+        expect.objectContaining({ title: 'Full 0', voteCount: 0 }),
+      ]),
+    },
+  });
+  read.mockResolvedValue(rows(7));
+  service.invalidate();
+  await vi.advanceTimersByTimeAsync(1030);
+  const update = compact.at(-1)!;
+  expect(update.type).toBe('ranking-counts');
+  expect(update.data).toEqual({
+    totalVotes: 7,
+    totalDestinations: 4,
+    items: rows(7).map(({ id, voteCount, rank }) => ({
+      id,
+      voteCount: Number(voteCount),
+      rank: Number(rank),
+    })),
+  });
+  expect(legacy.at(-1)).toMatchObject({
+    type: 'rankings',
+    data: {
+      items: expect.arrayContaining([
+        expect.objectContaining({ title: 'Full 0', voteCount: 7 }),
+      ]),
+    },
+  });
+  const reconnected: MessageEvent[] = [];
+  const c = service.stream(true).subscribe((event) => reconnected.push(event));
+  expect(reconnected[0]).toMatchObject({
+    type: 'rankings',
+    data: {
+      totalVotes: 7,
+      items: expect.arrayContaining([
+        expect.objectContaining({ title: 'Full 0' }),
+      ]),
+    },
+  });
+  expect(await service.counts()).toEqual(update.data);
+  a.unsubscribe();
+  b.unsubscribe();
+  c.unsubscribe();
+  service.onModuleDestroy();
+});
+
+it('refreshes metadata for compact clients when a destination is edited', async () => {
+  vi.useFakeTimers();
+  const { service, read } = fixture();
+  const events: MessageEvent[] = [];
+  const subscription = service
+    .stream(true)
+    .subscribe((event) => events.push(event));
+  await vi.advanceTimersByTimeAsync(30);
+  const updated = rows(0);
+  updated[0].title = 'Edited by operator';
+  read.mockResolvedValue(updated);
+  await vi.advanceTimersByTimeAsync(2100);
+  expect(events.at(-1)).toMatchObject({
+    type: 'rankings',
+    data: {
+      items: expect.arrayContaining([
+        expect.objectContaining({ title: 'Edited by operator' }),
+      ]),
+    },
+  });
+  subscription.unsubscribe();
+  service.onModuleDestroy();
+});
+
+it('keeps reordered ranks compact without mistaking rank changes for edited metadata', async () => {
+  vi.useFakeTimers();
+  const { service, read } = fixture();
+  const events: MessageEvent[] = [];
+  const subscription = service
+    .stream(true)
+    .subscribe((event) => events.push(event));
+  await vi.advanceTimersByTimeAsync(30);
+  const updated = rows(0);
+  updated[1].voteCount = '1';
+  updated.forEach((row) => {
+    row.totalVotes = '1';
+  });
+  [updated[0], updated[1]] = [updated[1], updated[0]];
+  updated.forEach((row, index) => {
+    row.rank = String(index + 1);
+  });
+  read.mockResolvedValue(updated);
+  service.invalidate();
+  await vi.advanceTimersByTimeAsync(1030);
+  expect(events.at(-1)).toMatchObject({
+    type: 'ranking-counts',
+    data: {
+      totalVotes: 1,
+      items: expect.arrayContaining([
+        { id: 'destination-1', rank: 1, voteCount: 1 },
+        { id: 'destination-0', rank: 2, voteCount: 0 },
+      ]),
+    },
+  });
+  subscription.unsubscribe();
   service.onModuleDestroy();
 });

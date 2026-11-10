@@ -10,3 +10,10 @@ export class RankingResponseDto {
   totalVotes: number;
   totalDestinations: number;
 }
+
+/** Absolute counts, not increments: reconnects/coalesced updates cannot lose votes. */
+export class RankingCountsResponseDto {
+  totalVotes: number;
+  totalDestinations: number;
+  items: { id: string; voteCount: number; rank: number }[];
+}

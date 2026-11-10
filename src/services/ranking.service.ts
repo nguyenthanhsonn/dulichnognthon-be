@@ -22,7 +22,10 @@ import {
 } from 'rxjs';
 import { DataSource } from 'typeorm';
 import { Destination, Vote } from '../database/entities/voting.entities.js';
-import type { RankingResponseDto } from './dto/ranking/ranking.response.dto.js';
+import type {
+  RankingCountsResponseDto,
+  RankingResponseDto,
+} from './dto/ranking/ranking.response.dto.js';
 
 interface RankingRow {
   id: string;
@@ -54,9 +57,10 @@ export class RankingService implements OnModuleDestroy {
 
   // Một luồng dùng chung cho mọi kết nối; không chạy polling khi không có người xem.
   // Query định kỳ đồng bộ cả phiếu được ghi từ instance khác hoặc trực tiếp vào DB.
-  private readonly events: Observable<MessageEvent> = merge(
+  private readonly events: Observable<RankingResponseDto> = merge(
     timer(0, 2000),
-    this.changes,
+    // Coalesce bursts after commit; a trailing refresh always reads absolute DB counts.
+    this.changes.pipe(auditTime(1000)),
   ).pipe(
     auditTime(25),
     exhaustMap(() =>
@@ -73,7 +77,6 @@ export class RankingService implements OnModuleDestroy {
       (previous, current) =>
         JSON.stringify(previous) === JSON.stringify(current),
     ),
-    map((data): MessageEvent => ({ type: 'rankings', data, retry: 3000 })),
     takeUntil(this.stopped),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
@@ -86,10 +89,33 @@ export class RankingService implements OnModuleDestroy {
     this.changes.next();
   }
 
-  stream(): Observable<MessageEvent> {
+  stream(compact = false): Observable<MessageEvent> {
+    const rankings = defer(() => {
+      // Each connection starts with metadata, including after a reconnect.
+      let previousMetadata: string | undefined;
+      return this.events.pipe(
+        map((data): MessageEvent => {
+          if (!compact) return { type: 'rankings', data, retry: 3000 };
+          const metadata = JSON.stringify(
+            data.items
+              .map(({ voteCount: _votes, rank: _rank, ...item }) => item)
+              .sort((a, b) => a.id.localeCompare(b.id)),
+          );
+          if (metadata !== previousMetadata) {
+            previousMetadata = metadata;
+            return { type: 'rankings', data, retry: 15000 };
+          }
+          return {
+            type: 'ranking-counts',
+            data: this.countsFrom(data),
+            retry: 15000,
+          };
+        }),
+      );
+    });
     // Heartbeat không ghi đè snapshot replay; người mới luôn nhận bảng hiện tại.
     return merge(
-      this.events,
+      rankings,
       timer(15000, 15000).pipe(
         map((): MessageEvent => ({ comment: 'keep-alive' })),
       ),
@@ -111,6 +137,22 @@ export class RankingService implements OnModuleDestroy {
       totalDestinations: value.totalDestinations,
       items: topOnly ? value.items.slice(0, 3) : value.items,
     });
+  }
+
+  async counts(): Promise<RankingCountsResponseDto> {
+    return this.countsFrom(await this.snapshot());
+  }
+
+  private countsFrom(value: RankingResponseDto): RankingCountsResponseDto {
+    return {
+      totalVotes: value.totalVotes,
+      totalDestinations: value.totalDestinations,
+      items: value.items.map(({ id, voteCount, rank }) => ({
+        id,
+        voteCount,
+        rank,
+      })),
+    };
   }
 
   private async snapshot(canRetry = true): Promise<RankingResponseDto> {

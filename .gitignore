@@ -49,6 +49,10 @@ lerna-debug.log*
 .temp
 .tmp
 
+# Private database backups
+/.backups/
+/.worktrees/
+
 # Runtime data
 pids
 *.pid

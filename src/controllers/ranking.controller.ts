@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Inject, Sse } from '@nestjs/common';
+import { Controller, Get, Header, Inject, Query, Sse } from '@nestjs/common';
 import { RankingService } from '../services/ranking.service.js';
 
 @Controller('rankings')
@@ -12,8 +12,14 @@ export class RankingController {
   @Header('Cache-Control', 'no-cache, no-transform')
   @Header('X-Accel-Buffering', 'no')
   @Header('Access-Control-Allow-Origin', '*')
-  stream() {
-    return this.rankings.stream();
+  stream(@Query('compact') compact?: string) {
+    return this.rankings.stream(compact === '1');
+  }
+
+  @Get('counts')
+  @Header('Cache-Control', 'no-store')
+  counts() {
+    return this.rankings.counts();
   }
 
   @Get('top')
