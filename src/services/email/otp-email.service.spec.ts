@@ -323,15 +323,18 @@ it('skips a Gmail account after a later quota notice and shares the check across
   const now = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
   const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
   const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
-  const request = vi
-    .fn()
-    .mockResolvedValueOnce({ data: {} })
-    .mockResolvedValueOnce({ status: 200, data: { id: 'accepted-by-primary' } })
-    .mockResolvedValueOnce({ data: { messages: [{ id: 'quota-notice' }] } })
-    .mockResolvedValueOnce({
-      data: { ...quotaNotice, internalDate: String(startedAt + 1000) },
-    })
-    .mockResolvedValue({ status: 200, data: { id: 'accepted-by-backup' } });
+  const request = vi.fn(async (options) => {
+    if (options.method === 'POST')
+      return { status: 200, data: { id: 'accepted' } };
+    if (options.url.endsWith('/quota-notice'))
+      return {
+        data: { ...quotaNotice, internalDate: String(startedAt + 1000) },
+      };
+    return {
+      data:
+        Date.now() > startedAt ? { messages: [{ id: 'quota-notice' }] } : {},
+    };
+  });
   mockGmailRequests(request);
   const service = new OtpEmailService(
     new ConfigService(gmailPoolWithBounceCheck),
@@ -345,15 +348,9 @@ it('skips a Gmail account after a later quota notice and shares the check across
   ]);
   await service.sendOtp('voter@example.com', '456789', context);
 
-  expect(request.mock.calls.map(([options]) => options.method)).toEqual([
-    'GET',
-    'POST',
-    'GET',
-    'GET',
-    'POST',
-    'POST',
-    'POST',
-  ]);
+  expect(
+    request.mock.calls.filter(([options]) => options.method === 'GET'),
+  ).toHaveLength(4);
   expect(
     request.mock.calls
       .filter(([options]) => options.method === 'POST')
@@ -404,20 +401,23 @@ it('ignores an expired quota notice, a different sender, and a non-quota bounce'
     .mockResolvedValueOnce({
       status: 200,
       data: { id: 'accepted-by-primary' },
-    });
+    })
+    .mockResolvedValue({ data: {} });
   mockGmailRequests(request);
 
   await new OtpEmailService(
     new ConfigService(gmailPoolWithBounceCheck),
   ).sendOtp('voter@example.com', '123456', context);
 
-  expect(request.mock.lastCall?.[0]).toMatchObject({
+  expect(
+    request.mock.calls.find(([options]) => options.method === 'POST')?.[0],
+  ).toMatchObject({
     method: 'POST',
     headers: { Authorization: 'Bearer primary-token' },
   });
 });
 
-it('keeps sending and throttles mailbox checks if OAuth cannot read the mailbox', async () => {
+it('keeps rotating send-only accounts and stops mailbox checks when OAuth lacks read permission', async () => {
   const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
   const request = vi
     .fn()
@@ -444,6 +444,84 @@ it('keeps sending and throttles mailbox checks if OAuth cannot read the mailbox'
   expect(warn).toHaveBeenCalledExactlyOnceWith(
     expect.stringContaining('status=403 reason=insufficientPermissions'),
   );
+  expect(
+    request.mock.calls
+      .filter(([options]) => options.method === 'POST')
+      .map(([options]) => options.headers.Authorization),
+  ).toEqual(['Bearer primary-token', 'Bearer backup-token']);
+});
+
+it('rotates accepted senders rather than staying on an account without delivery confirmation', async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValue({ status: 200, data: { id: 'accepted' } });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(new ConfigService(gmailPool));
+  await service.sendOtp('voter@example.com', '123456', context);
+  await service.sendOtp('voter@example.com', '234567', context);
+  await service.sendOtp('voter@example.com', '345678', context);
+  expect(
+    request.mock.calls.map(([options]) => options.headers.Authorization),
+  ).toEqual([
+    'Bearer primary-token',
+    'Bearer backup-token',
+    'Bearer primary-token',
+  ]);
+});
+
+it('rotates concurrent requests before the first Gmail acceptance returns', async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValue({ status: 200, data: { id: 'accepted' } });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(new ConfigService(gmailPool));
+  await Promise.all([
+    service.sendOtp('voter@example.com', '123456', context),
+    service.sendOtp('another@example.com', '234567', context),
+  ]);
+  expect(
+    request.mock.calls
+      .map(([options]) => options.headers.Authorization)
+      .sort((left: string, right: string) => left.localeCompare(right)),
+  ).toEqual(['Bearer backup-token', 'Bearer primary-token']);
+});
+
+it('switches within the same request when a quota bounce appears after Gmail accepts the OTP', async () => {
+  const now = Date.now();
+  let accepted = false;
+  const request = vi.fn(async (options) => {
+    if (options.method === 'POST') {
+      accepted = true;
+      return { status: 200, data: { id: 'accepted' } };
+    }
+    if (options.url.endsWith('/quota-notice'))
+      return { data: { ...quotaNotice, internalDate: String(now) } };
+    return { data: accepted ? { messages: [{ id: 'quota-notice' }] } : {} };
+  });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(
+    new ConfigService(gmailPoolWithBounceCheck),
+  );
+  await service.sendOtp('voter@example.com', '123456', context);
+  await service.sendOtp('voter@example.com', '234567', context);
+  const posts = request.mock.calls.filter(
+    ([options]) => options.method === 'POST',
+  );
+  expect(posts.map(([options]) => options.headers.Authorization)).toEqual([
+    'Bearer primary-token',
+    'Bearer backup-token',
+    'Bearer backup-token',
+  ]);
+  expect(
+    posts
+      .slice(0, 2)
+      .map(([options]) =>
+        Buffer.from(options.data.raw, 'base64url')
+          .toString('utf8')
+          .split('\r\n\r\n')[1]
+          ?.trim(),
+      ),
+  ).toEqual(['123456', '123456']);
 });
 
 it.each([
@@ -535,17 +613,38 @@ it.each([
       data: { error: { errors: [{ reason: 'unknownPolicy' }] } },
     },
   },
-])('does not switch accounts for unrelated errors (%j)', async (error) => {
-  const request = vi.fn().mockRejectedValue(error);
+])(
+  'tries the remaining pool when Gmail rejects an account with an unclassified error (%j)',
+  async (error) => {
+    const request = vi.fn().mockRejectedValue(error);
+    mockGmailRequests(request);
+    await expect(
+      new OtpEmailService(new ConfigService(gmailPool)).sendOtp(
+        'voter@example.com',
+        '123456',
+        context,
+      ),
+    ).rejects.toThrow('Không thể gửi email');
+    expect(request).toHaveBeenCalledTimes(2);
+  },
+);
+
+it('pauses an unclassified account failure and continues using another account', async () => {
+  const request = vi
+    .fn()
+    .mockRejectedValueOnce({ response: { status: 403 } })
+    .mockResolvedValue({ status: 200, data: { id: 'accepted' } });
   mockGmailRequests(request);
-  await expect(
-    new OtpEmailService(new ConfigService(gmailPool)).sendOtp(
-      'voter@example.com',
-      '123456',
-      context,
-    ),
-  ).rejects.toThrow('Không thể gửi email');
-  expect(request).toHaveBeenCalledTimes(1);
+  const service = new OtpEmailService(new ConfigService(gmailPool));
+  await service.sendOtp('voter@example.com', '123456', context);
+  await service.sendOtp('voter@example.com', '234567', context);
+  expect(
+    request.mock.calls.map(([options]) => options.headers.Authorization),
+  ).toEqual([
+    'Bearer primary-token',
+    'Bearer backup-token',
+    'Bearer backup-token',
+  ]);
 });
 
 it.each([

@@ -92,6 +92,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
   private readonly logger = new Logger(OtpEmailService.name);
   private smtp?: Transporter<SMTPTransport.SentMessageInfo>;
   private gmail?: GmailAccount[];
+  private nextGmailAccount = 0;
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
   private settings(): MailSettings {
@@ -215,8 +216,15 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
     label: string,
     subject: string,
     challengeId: string,
+    force = false,
   ): Promise<void> {
-    if (!account.checkQuotaBounces || account.nextBounceCheckAt > Date.now())
+    if (!account.checkQuotaBounces) return;
+    // Sau khi gửi phải đọc kết quả mới, không dùng lượt kiểm tra trước khi gửi.
+    if (force && account.bounceCheck) await account.bounceCheck;
+    if (
+      !account.checkQuotaBounces ||
+      (!force && account.nextBounceCheckAt > Date.now())
+    )
       return;
 
     account.bounceCheck ??= account.mailer
@@ -230,6 +238,11 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
       })
       .catch((error: unknown) => {
         const failure = error instanceof GmailDeliveryError ? error : undefined;
+        if (
+          failure?.status === 401 ||
+          failure?.reason === 'insufficientPermissions'
+        )
+          account.checkQuotaBounces = false;
         this.logger.warn(
           `Gmail quota check failed ${label} challengeId=${challengeId} status=${failure?.status ?? 'unknown'} reason=${failure?.reason ?? 'unknown'}`,
         );
@@ -345,7 +358,13 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
       nextBounceCheckAt: 0,
     }));
 
-    const candidates = [...this.gmail.entries()].sort(
+    // Bắt đầu sau tài khoản vừa được thử, kể cả Gmail chỉ nhận lệnh nhưng
+    // chưa giao thư. Giữ nguyên index gốc trong log để đối chiếu cấu hình.
+    const entries = [...this.gmail.entries()];
+    const candidates = [
+      ...entries.slice(this.nextGmailAccount),
+      ...entries.slice(0, this.nextGmailAccount),
+    ].sort(
       ([, left], [, right]) =>
         Number(left.recoveringFromRateLimit) -
         Number(right.recoveringFromRateLimit),
@@ -361,6 +380,8 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
 
       // Giữ một chỗ trước khi chờ mạng để các request đồng thời không vượt ngưỡng mềm.
       account.inFlight++;
+      // Cập nhật trước khi chờ mạng để các request đồng thời cũng luân phiên.
+      this.nextGmailAccount = (index + 1) % this.gmail.length;
       try {
         await this.checkGmailQuotaBounce(account, label, subject, challengeId);
         for (let attempt = 1; attempt <= 3; attempt++) {
@@ -375,6 +396,17 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             const acceptedAt = Date.now();
             refreshGmailDay(account, acceptedAt);
             account.sentToday++;
+            if (account.checkQuotaBounces) {
+              await delay(500);
+              await this.checkGmailQuotaBounce(
+                account,
+                label,
+                subject,
+                challengeId,
+                true,
+              );
+              if (account.exhaustedUntil > Date.now()) break;
+            }
             if (account.exhaustedUntil <= acceptedAt)
               account.recoveringFromRateLimit = false;
             const messageId = /^[a-zA-Z0-9_-]{1,128}$/.test(id)
@@ -418,6 +450,17 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
               }
               case 'transient':
                 action = retry ? 'retry' : 'switch';
+                break;
+              case 'unknown':
+                // Lỗi riêng ở OAuth/API/acceptance không được chặn cả pool.
+                // MIME chung hoặc người nhận sai vẫn dừng, không gửi hàng loạt.
+                if (error.stage !== 'compose') {
+                  account.exhaustedUntil = Math.max(
+                    account.exhaustedUntil,
+                    now + 60000,
+                  );
+                  action = 'exhaust_and_switch';
+                }
                 break;
             }
             this.logger.warn(

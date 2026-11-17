@@ -82,7 +82,7 @@ Các biến `SMTP_*` và `RESEND_API_KEY` không được dùng khi provider là
 #### Nhiều tài khoản Gmail và chuyển khi hết quota
 
 Đặt `EMAIL_PROVIDER=gmail_api` và thêm `GMAIL_ACCOUNTS` trong Render Environment
-hoặc `.env`. Giá trị là mảng JSON theo thứ tự ưu tiên. Ví dụ `.env`:
+hoặc `.env`. Giá trị là mảng JSON theo thứ tự luân phiên. Ví dụ `.env`:
 
 ```dotenv
 GMAIL_ACCOUNTS='[{"email":"primary@gmail.com","clientId":"CLIENT_ID","clientSecret":"CLIENT_SECRET","refreshToken":"REFRESH_TOKEN"},{"email":"backup@gmail.com","clientId":"BACKUP_ID","clientSecret":"BACKUP_SECRET","refreshToken":"BACKUP_TOKEN"}]'
@@ -94,8 +94,13 @@ trường cũ `from` vẫn dùng được. Khi `GMAIL_ACCOUNTS` có giá trị, 
 `MAIL_FROM` và ba biến OAuth Gmail đơn. Nếu danh sách trống hoặc chưa đặt biến,
 backend dùng cấu hình Gmail đơn; JSON lỗi, mảng rỗng `[]` hoặc trùng email trả 503.
 
-Mỗi lần gửi bắt đầu ở tài khoản khả dụng đầu tiên. HTTP 200 kèm message ID là
-điều kiện ghi nhận Gmail đã chấp nhận thư. Mỗi tài khoản có ngưỡng mềm
+Mỗi lần gửi bắt đầu sau tài khoản vừa được thử, bỏ qua các tài khoản đang nghỉ,
+bị vô hiệu hoặc chạm ngưỡng mềm. Con trỏ cập nhật trước khi chờ mạng để các
+request đồng thời cũng phân tán lượt gửi. Tài khoản từng lỗi rate limit vẫn được
+xếp sau các tài khoản khả dụng khác. Kể cả Gmail nhận lệnh nhưng chưa giao thư,
+lượt gửi tiếp theo cũng luân phiên thay vì bám mãi tài khoản đó (nếu còn tài khoản
+khả dụng khác). HTTP 200 kèm message ID là điều kiện ghi nhận Gmail đã chấp nhận
+thư, không phải xác nhận giao thư. Mỗi tài khoản có ngưỡng mềm
 `GMAIL_DAILY_SOFT_LIMIT` (số nguyên dương, mặc định 450), đếm lượt được Gmail
 chấp nhận và reset vào 00:00 giờ Pacific (`America/Los_Angeles`).
 
@@ -115,6 +120,9 @@ chấp nhận và reset vào 00:00 giờ Pacific (`America/Los_Angeles`).
   500 ms. Sau đó chuyển sang tài khoản kế tiếp và giữ tài khoản cũ khả dụng cho
   request mới. Timeout sau khi Gmail nhận request có thể khiến người nhận nhận
   nhiều bản sao của cùng một OTP.
+- **Lỗi OAuth/API chưa phân loại hoặc phản hồi chấp nhận không hợp lệ** — tạm
+  nghỉ tài khoản 60 giây và thử tài khoản kế tiếp ngay. Lỗi tạo MIME chung vẫn
+  dừng; không xoay tài khoản với lỗi địa chỉ người nhận đã nhận diện.
 - **Địa chỉ người nhận bị Gmail từ chối** — trả 400 và dừng. Nếu hết tài khoản
   khả dụng hoặc Gmail không xác nhận gửi, API trả 503. Chỉ sau khi xác nhận gửi,
   backend mới lưu challenge, thay OTP cũ và bắt đầu tính cooldown.
@@ -140,7 +148,10 @@ và kiểm tra yêu cầu xác minh OAuth của Google.
 [Quyền Gmail API](https://developers.google.com/workspace/gmail/api/auth/scopes).
 
 Trước khi gửi OTP từ một tài khoản đã bật, backend kiểm tra tối đa một lần mỗi
-phút trên mỗi instance. Backend chỉ tìm trong Inbox các thư có tiêu đề OTP từ
+phút trên mỗi instance. Sau khi Gmail nhận lệnh, chờ 500 ms rồi kiểm tra mới một
+lần nữa, không dùng kết quả cache trước khi gửi. Nếu đã có thông báo vượt hạn mức,
+backend thử tài khoản kế tiếp ngay trong cùng request, giữ nguyên mã OTP. Backend
+chỉ tìm trong Inbox các thư có tiêu đề OTP từ
 `mailer-daemon@googlemail.com` và nội dung báo đạt giới hạn gửi bằng tiếng Việt
 hoặc tiếng Anh. Khi khớp, tài khoản nghỉ tối đa 24 giờ tính từ lúc Gmail nhận
 thư trả lại, rồi vòng gửi thử tài khoản kế tiếp ngay trong request hiện tại.
@@ -151,7 +162,13 @@ Render Logs ghi `Gmail quota bounce detected` kèm `account`, `challengeId` và
 `pausedUntil`. `Gmail OTP accepted` ghi tài khoản và message ID mỗi lần Gmail
 chấp nhận lệnh gửi. Nếu đọc Inbox lỗi hoặc token thiếu quyền, log
 `Gmail quota check failed` và tiếp tục dùng cơ chế xử lý phản hồi gửi Gmail API.
-Tài khoản chỉ có scope `gmail.send` tiếp tục hoạt động khi bỏ qua tùy chọn này.
+Nếu token thiếu quyền đọc hoặc trả 401, backend ngừng kiểm tra hộp thư của tài
+khoản đó đến khi restart, nhưng vẫn luân phiên gửi. Tài khoản chỉ có scope
+`gmail.send` tiếp tục hoạt động khi bỏ qua tùy chọn này. Thư trả lại có thể tới
+muộn hơn lần kiểm tra sau gửi; khi chưa có thông báo trả lại, backend không thể
+kết luận thất bại hay tự gửi thêm bản sao qua tài khoản khác chỉ dựa vào HTTP 200.
+Lượt gửi tiếp theo tiếp tục luân phiên; lần kiểm tra hộp thư sau sẽ phát hiện
+thông báo hạn mức còn trong khoảng 24 giờ.
 
 ### 5. Kiểm tra thực tế
 
