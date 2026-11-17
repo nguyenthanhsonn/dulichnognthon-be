@@ -102,7 +102,9 @@ chấp nhận và reset vào 00:00 giờ Pacific (`America/Los_Angeles`).
 - **Quota** — HTTP 429, hoặc 403 với `userRateLimitExceeded`,
   `rateLimitExceeded`, `dailyLimitExceeded`, `quotaExceeded`, chuyển sang tài khoản
   tiếp theo ngay trong request. Lỗi rate limit nghỉ theo `Retry-After`, mặc định
-  60 giây. Quota ngày, kể cả lỗi có nội dung báo giới hạn gửi, nghỉ tới 00:00 giờ
+  60 giây. Sau thời gian chờ, backend xếp tài khoản từng bị rate limit sau các
+  tài khoản khả dụng khác cho đến khi Gmail chấp nhận một lượt gửi từ nó.
+  Quota ngày, kể cả lỗi có nội dung báo giới hạn gửi, nghỉ tới 00:00 giờ
   Pacific hoặc lâu hơn theo `Retry-After`, tối đa 24 giờ kể từ lúc nhận lỗi.
   Đây là mốc thử lại của backend. Gmail có thể tiếp tục từ chối nếu hạn mức
   thực tế của tài khoản chưa được khôi phục.

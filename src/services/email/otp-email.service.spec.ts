@@ -501,6 +501,32 @@ it('skips exhausted accounts until Retry-After expires, then recovers', async ()
   expect(request).toHaveBeenCalledTimes(3);
 });
 
+it('keeps using a healthy account ahead of a rate-limited account after cooldown', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(1000000);
+  const request = vi
+    .fn()
+    .mockRejectedValueOnce({ response: { status: 429 } })
+    .mockResolvedValue({ status: 200, data: { id: 'accepted' } });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(
+    new ConfigService({ ...gmailPool, GMAIL_DAILY_SOFT_LIMIT: '2' }),
+  );
+
+  await service.sendOtp('voter@example.com', '123456', context);
+  now.mockReturnValue(1060001);
+  await service.sendOtp('voter@example.com', '234567', context);
+  await service.sendOtp('voter@example.com', '345678', context);
+
+  expect(
+    request.mock.calls.map(([options]) => options.headers.Authorization),
+  ).toEqual([
+    'Bearer primary-token',
+    'Bearer backup-token',
+    'Bearer backup-token',
+    'Bearer primary-token',
+  ]);
+});
+
 it.each([
   { response: { status: 400 } },
   {

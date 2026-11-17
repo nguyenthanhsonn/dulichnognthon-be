@@ -28,6 +28,7 @@ type GmailAccount = {
   from: string;
   mailer: GmailApiMailer;
   exhaustedUntil: number;
+  recoveringFromRateLimit: boolean;
   disabled: boolean;
   sentToday: number;
   dailyResetAt: number;
@@ -335,6 +336,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
       from: account.from,
       mailer: new GmailApiMailer(account),
       exhaustedUntil: 0,
+      recoveringFromRateLimit: false,
       disabled: false,
       sentToday: 0,
       dailyResetAt: 0,
@@ -343,7 +345,12 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
       nextBounceCheckAt: 0,
     }));
 
-    for (const [index, account] of this.gmail.entries()) {
+    const candidates = [...this.gmail.entries()].sort(
+      ([, left], [, right]) =>
+        Number(left.recoveringFromRateLimit) -
+        Number(right.recoveringFromRateLimit),
+    );
+    for (const [index, account] of candidates) {
       const label = `account=${index + 1} sender=${account.from[0]}***@${account.from.split('@').at(-1)}`;
       const accountLog = `${label} challengeId=${challengeId}`;
       const now = Date.now();
@@ -368,6 +375,8 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             const acceptedAt = Date.now();
             refreshGmailDay(account, acceptedAt);
             account.sentToday++;
+            if (account.exhaustedUntil <= acceptedAt)
+              account.recoveringFromRateLimit = false;
             const messageId = /^[a-zA-Z0-9_-]{1,128}$/.test(id)
               ? id
               : '[redacted]';
@@ -391,6 +400,8 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
                 break;
               case 'daily_quota':
               case 'rate_limit': {
+                if (error.kind === 'rate_limit')
+                  account.recoveringFromRateLimit = true;
                 const until =
                   error.kind === 'daily_quota'
                     ? Math.max(
