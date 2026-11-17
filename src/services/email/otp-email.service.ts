@@ -95,8 +95,21 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
   private nextGmailAccount = 0;
   constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
+  private disabledGmailAccounts(): Set<string> {
+    const addresses = (this.config.get<string>('GMAIL_DISABLED_ACCOUNTS') ?? '')
+      .split(',')
+      .map((address) => address.trim().toLowerCase())
+      .filter(Boolean);
+    if (addresses.some((address) => !isEmail(address)))
+      throw new ServiceUnavailableException(
+        'GMAIL_DISABLED_ACCOUNTS không hợp lệ.',
+      );
+    return new Set(addresses);
+  }
+
   private settings(): MailSettings {
     const provider = this.config.get<string>('EMAIL_PROVIDER') || 'gmail_api';
+    if (provider === 'gmail_api') this.disabledGmailAccounts();
     const dailySoftLimit = Number(
       this.config.get<string>('GMAIL_DAILY_SOFT_LIMIT')?.trim() || 450,
     );
@@ -345,12 +358,13 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
     text: string,
     challengeId: string,
   ): Promise<void> {
+    const disabledAccounts = this.disabledGmailAccounts();
     this.gmail ??= settings.accounts.map((account) => ({
       from: account.from,
       mailer: new GmailApiMailer(account),
       exhaustedUntil: 0,
       recoveringFromRateLimit: false,
-      disabled: false,
+      disabled: disabledAccounts.has(account.from.toLowerCase()),
       sentToday: 0,
       dailyResetAt: 0,
       inFlight: 0,

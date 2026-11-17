@@ -306,6 +306,51 @@ function mockGmailRequests(request: ReturnType<typeof vi.fn>) {
   );
 }
 
+it('skips a manually disabled sender without using its OAuth credentials', async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValue({ status: 200, data: { id: 'accepted' } });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(
+    new ConfigService({
+      ...gmailPool,
+      GMAIL_DISABLED_ACCOUNTS: ' PRIMARY@gmail.com ',
+    }),
+  );
+  await service.sendOtp('voter@example.com', '123456', context);
+  await service.sendOtp('voter@example.com', '234567', context);
+  expect(
+    request.mock.calls.map(([options]) => options.headers.Authorization),
+  ).toEqual(['Bearer backup-token', 'Bearer backup-token']);
+});
+
+it('returns 503 without calling Gmail when every configured sender is manually disabled', async () => {
+  const request = vi.fn();
+  mockGmailRequests(request);
+  const service = new OtpEmailService(
+    new ConfigService({
+      ...gmailPool,
+      GMAIL_DISABLED_ACCOUNTS: 'primary@gmail.com,backup@gmail.com',
+    }),
+  );
+  await expect(
+    service.sendOtp('voter@example.com', '123456', context),
+  ).rejects.toMatchObject({ status: 503 });
+  expect(request).not.toHaveBeenCalled();
+});
+
+it('rejects malformed disabled-account configuration before issuing an OTP', () => {
+  const service = new OtpEmailService(
+    new ConfigService({
+      ...gmailPool,
+      GMAIL_DISABLED_ACCOUNTS: 'not-an-email',
+    }),
+  );
+  expect(() => service.assertAvailable()).toThrow(
+    'GMAIL_DISABLED_ACCOUNTS không hợp lệ.',
+  );
+});
+
 const quotaNotice = {
   snippet: 'Bạn đã đạt đến giới hạn gửi thư. Thư của bạn chưa được gửi. 123456',
   payload: {

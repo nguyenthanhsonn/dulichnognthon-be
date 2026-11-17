@@ -87,12 +87,19 @@ hoặc `.env`. Giá trị là mảng JSON theo thứ tự luân phiên. Ví dụ
 ```dotenv
 GMAIL_ACCOUNTS='[{"email":"primary@gmail.com","clientId":"CLIENT_ID","clientSecret":"CLIENT_SECRET","refreshToken":"REFRESH_TOKEN"},{"email":"backup@gmail.com","clientId":"BACKUP_ID","clientSecret":"BACKUP_SECRET","refreshToken":"BACKUP_TOKEN"}]'
 GMAIL_DAILY_SOFT_LIMIT=450
+GMAIL_DISABLED_ACCOUNTS=
 ```
 
 Trong Render nhập JSON trực tiếp. `email` phải khớp tài khoản đã cấp token. Tên
 trường cũ `from` vẫn dùng được. Khi `GMAIL_ACCOUNTS` có giá trị, nó thay cấu hình
 `MAIL_FROM` và ba biến OAuth Gmail đơn. Nếu danh sách trống hoặc chưa đặt biến,
 backend dùng cấu hình Gmail đơn; JSON lỗi, mảng rỗng `[]` hoặc trùng email trả 503.
+
+Để tạm loại tài khoản đã xác nhận không giao thư (kể cả Gmail trả HTTP 200), đặt
+`GMAIL_DISABLED_ACCOUNTS` thành danh sách email phân cách bằng dấu phẩy và
+restart/deploy service. Backend bỏ qua các tài khoản này trước khi gọi OAuth,
+giữ nguyên số thứ tự tài khoản trong log. Bỏ email khỏi biến rồi restart/deploy
+để đưa tài khoản trở lại. Không cần sửa hay sao chép OAuth credentials.
 
 Mỗi lần gửi bắt đầu sau tài khoản vừa được thử, bỏ qua các tài khoản đang nghỉ,
 bị vô hiệu hoặc chạm ngưỡng mềm. Con trỏ cập nhật trước khi chờ mạng để các
