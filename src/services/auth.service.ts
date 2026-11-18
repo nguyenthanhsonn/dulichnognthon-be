@@ -45,6 +45,34 @@ const invalidOtp = () =>
 const invalidSession = () =>
   new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+const blockedEmailDomains = new Set([
+  'mailforspam.com',
+  'yopmail.com',
+  'yopmail.fr',
+  'yopmail.net',
+  'mailinator.com',
+  'haribu.net',
+  'guerrillamail.com',
+  'guerrillamail.net',
+  'guerrillamail.org',
+  'guerrillamail.biz',
+  'guerrillamail.de',
+  'guerrillamail.info',
+  'guerrillamailblock.com',
+  'sharklasers.com',
+  'grr.la',
+  'temp-mail.org',
+  '10minutemail.com',
+  'mohmal.com',
+  'duck.com',
+  'mozmail.com',
+  'relay.firefox.com',
+  'simplelogin.com',
+  'simplelogin.co',
+  'simplelogin.io',
+  'aleeas.com',
+  'slmail.me',
+]);
 
 /** Khóa và cập nhật OTP/session trong transaction để chống request đồng thời. */
 @Injectable()
@@ -88,6 +116,18 @@ export class AuthService {
     return a.length === 32 && b.length === 32 && timingSafeEqual(a, b);
   }
 
+  private assertAllowedEmail(email: string): void {
+    const domain = email.slice(email.lastIndexOf('@') + 1);
+    const labels = domain.split('.');
+    for (let index = 0; index < labels.length - 1; index++) {
+      if (blockedEmailDomains.has(labels.slice(index).join('.'))) {
+        throw new BadRequestException(
+          'Email tạm thời hoặc email chuyển tiếp không được hỗ trợ. Vui lòng dùng email cá nhân.',
+        );
+      }
+    }
+  }
+
   async sendOtp(email: string): Promise<SendOtpResponseDto> {
     return this.issueOtp(email, 'SEND');
   }
@@ -102,6 +142,7 @@ export class AuthService {
   ): Promise<SendOtpResponseDto> {
     assertContestOpen();
     email = normalizeEmail(email) as string;
+    this.assertAllowedEmail(email);
     // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
     this.mail.assertAvailable();
     const otp = randomInt(0, 1000000).toString().padStart(6, '0');
@@ -247,6 +288,7 @@ export class AuthService {
   async verifyOtp(email: string, otp: string): Promise<TokenResponseDto> {
     assertContestOpen();
     email = normalizeEmail(email) as string;
+    this.assertAllowedEmail(email);
     const result = await this.database.transaction(
       'READ COMMITTED',
       async (tx) => {
