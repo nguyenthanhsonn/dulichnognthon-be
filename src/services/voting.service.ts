@@ -11,6 +11,7 @@ import { DataSource, QueryFailedError } from 'typeorm';
 import { RankingService } from './ranking.service.js';
 import { Vote } from '../database/entities/voting.entities.js';
 import { VotesRepository } from '../database/votes.repository.js';
+import { assertContestOpen } from '../common/contest-deadline.js';
 import { destinationSummary } from './dto/destination/destination.response.dto.js';
 import type {
   MyVotesResponseDto,
@@ -29,6 +30,7 @@ export class VotingService {
     userId: string,
     destinationId: string,
   ): Promise<VoteResponseDto> {
+    assertContestOpen();
     // Repository kiểm tra trùng và giữ khóa user trong toàn bộ transaction.
     const outcome = await this.votes
       .castVote(userId, destinationId)
@@ -46,6 +48,10 @@ export class VotingService {
       });
     if (!outcome.accepted) {
       switch (outcome.reason) {
+        case 'VOTING_CLOSED':
+          throw new ForbiddenException(
+            'Hội thi đã kết thúc. Cổng bình chọn đã đóng từ 00:00 ngày 21/11/2026 (giờ Việt Nam).',
+          );
         case 'USER_NOT_FOUND':
           throw new UnauthorizedException('Tài khoản không còn tồn tại.');
         case 'USER_BLOCKED':

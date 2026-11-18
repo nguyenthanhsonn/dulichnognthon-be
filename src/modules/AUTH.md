@@ -5,6 +5,13 @@ nghiệp vụ ở `src/services`, DTO và validation ở `src/services/dto/auth`
 `EmailSender` tách luồng xác thực khỏi dịch vụ gửi thư. Cấu hình triển khai chọn Gmail API qua HTTPS.
 Không gửi SMS.
 
+Từ 00:00 ngày 21/11/2026 giờ Việt Nam (17:00 UTC ngày 20/11), các API
+`POST /auth/otp/send`, `/auth/otp/resend`, `/auth/otp/verify` trả HTTP 403 vì
+hội thi đã kết thúc. OTP gửi trước mốc này cũng không thể dùng để đăng nhập sau
+hạn. Kiểm tra lại đồng hồ DB sau khi chờ khóa; không gửi email hoặc tạo phiên
+mới khi đã đóng. API đọc, refresh phiên cũ và đăng xuất vẫn hoạt động; mọi vote
+sau hạn bị chặn độc lập với thời hạn session.
+
 ## Gmail API cho local và Render Free
 
 Production dùng **Gmail API qua HTTPS**, với `mediaqtm@gmail.com` là địa chỉ cấu hình đơn mặc định.

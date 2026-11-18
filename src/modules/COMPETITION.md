@@ -21,15 +21,18 @@ hoặc media đã có. Ảnh dùng placeholder; dữ liệu demo cần được 
 chính thức trước khi công bố. Chạy lại seed không tạo bản ghi trùng. Không có seed
 user, phiếu bình chọn hoặc token; không tạo cách đăng nhập bỏ qua xác thực.
 
-Lịch bình chọn do frontend xử lý theo giờ Việt Nam (UTC+7): mở lúc 00:00 ngày
-07/11/2026 và đóng sau hết phút 23:59 ngày 20/11/2026. Frontend ẩn/khóa nút
-bình chọn ngoài thời gian này. Backend không kiểm tra lịch và vẫn nhận request
-bình chọn trực tiếp ngoài khung giờ; không dùng biến môi trường lịch bình chọn.
+Lịch bình chọn theo giờ Việt Nam (UTC+7): mở lúc 00:00 ngày 07/11/2026 và đóng
+sau hết phút 23:59 ngày 20/11/2026. Từ 00:00 ngày 21/11/2026 (17:00 UTC ngày
+20/11), backend trả HTTP 403 cho bình chọn và gửi/gửi lại/xác thực OTP, kể cả
+OTP đã gửi trước hạn hoặc phiên đăng nhập còn hiệu lực. Mốc đóng cố định trong
+`src/common/contest-deadline.ts`, không phụ thuộc múi giờ server hay biến môi
+trường. Repository kiểm tra đồng hồ DB sau khi chờ khóa, ngay trước khi ghi phiếu.
 
 Không giới hạn tổng số điểm đến mỗi tài khoản được bình chọn; mỗi điểm đến chỉ
 được vote một lần/tài khoản trong toàn hội thi. Các API đọc vẫn hoạt
-động trước/sau hội thi. Login và secret JWT/session tiếp tục dùng cấu hình auth
-hiện tại; xem [AUTH.md](AUTH.md). Không cần gửi email thật để chạy test ba module.
+động trước/sau hội thi. Phiên cũ vẫn có thể xem thông tin/lịch sử và đăng xuất,
+nhưng không thể vote sau hạn; xem [AUTH.md](AUTH.md).
+Không cần gửi email thật để chạy test ba module.
 
 ## Destination
 

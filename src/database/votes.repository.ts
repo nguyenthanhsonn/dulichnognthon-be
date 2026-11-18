@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { isContestClosed } from '../common/contest-deadline.js';
 import {
   User,
   Destination,
@@ -12,6 +13,7 @@ type Rejection =
   | 'USER_BLOCKED'
   | 'DESTINATION_NOT_FOUND'
   | 'DESTINATION_INACTIVE'
+  | 'VOTING_CLOSED'
   | 'ALREADY_VOTED';
 
 export type VoteOutcome =
@@ -68,17 +70,19 @@ export class VotesRepository {
         if (!destination) return reject('DESTINATION_NOT_FOUND');
         if (!destination.isActive) return reject('DESTINATION_INACTIVE');
 
-        // FE quản lý lịch mở/đóng; backend ghi thời điểm thực sau khi nhận khóa.
-        const [clock] = await tx.query<{ now: Date }[]>(
-          'SELECT clock_timestamp() AS now',
-        );
+        // Kiểm tra đồng hồ DB sau khi chờ khóa, kể cả phiên đăng nhập còn hiệu lực.
         const existing = await tx.findOneBy(Vote, { userId, destinationId });
         if (existing) return reject('ALREADY_VOTED');
+
+        const [writeClock] = await tx.query<{ now: Date }[]>(
+          'SELECT clock_timestamp() AS now',
+        );
+        if (isContestClosed(writeClock.now)) return reject('VOTING_CLOSED');
 
         const vote = await tx.save(
           Vote,
           // Ghi thời điểm thực thay vì thời điểm bắt đầu transaction trước khi chờ khóa.
-          tx.create(Vote, { userId, destinationId, createdAt: clock.now }),
+          tx.create(Vote, { userId, destinationId, createdAt: writeClock.now }),
         );
         // Vote và audit thành công luôn commit hoặc rollback cùng nhau.
         await tx.insert(VoteAttempt, {

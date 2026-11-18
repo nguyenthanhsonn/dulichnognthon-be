@@ -30,6 +30,10 @@ import {
 import { AUTH_SETTINGS, type AuthSettings } from './auth.config.js';
 import { EMAIL_SENDER, type EmailSender } from './email/email-sender.js';
 import { normalizeEmail } from './dto/auth/email.js';
+import {
+  assertContestOpen,
+  CONTEST_CLOSES_AT,
+} from '../common/contest-deadline.js';
 import type {
   SendOtpResponseDto,
   TokenResponseDto,
@@ -96,6 +100,7 @@ export class AuthService {
     email: string,
     requestType: 'SEND' | 'RESEND',
   ): Promise<SendOtpResponseDto> {
+    assertContestOpen();
     email = normalizeEmail(email) as string;
     // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
     this.mail.assertAvailable();
@@ -105,6 +110,7 @@ export class AuthService {
       async (tx) => {
         await this.emailLock(tx, email);
         const now = await this.now(tx);
+        assertContestOpen(now);
         const latest = await tx.findOne(OtpCode, {
           where: { email },
           order: { createdAt: 'DESC', id: 'DESC' },
@@ -169,6 +175,7 @@ export class AuthService {
         const flowId = activeFlow?.flowId ?? randomUUID();
         const user = await tx.findOneBy(User, { email });
         const id = randomUUID();
+        assertContestOpen(await this.now(tx));
         // Giữ khóa theo email đến khi provider xác nhận để yêu cầu đồng thời không gửi trùng.
         await this.mail.sendOtp(email, otp, {
           challengeId: id,
@@ -182,9 +189,14 @@ export class AuthService {
           ),
         });
         const sentAt = await this.now(tx);
-        const flowExpiresAt =
-          activeFlow?.flowExpiresAt ??
-          new Date(sentAt.getTime() + this.settings.otpFlowTtlSeconds * 1000);
+        assertContestOpen(sentAt);
+        const flowExpiresAt = new Date(
+          Math.min(
+            activeFlow?.flowExpiresAt?.getTime() ??
+              sentAt.getTime() + this.settings.otpFlowTtlSeconds * 1000,
+            CONTEST_CLOSES_AT,
+          ),
+        );
         if (flowExpiresAt <= sentAt)
           throw new BadRequestException(
             'Không có phiên OTP đang chờ hoặc phiên đã kết thúc. Vui lòng gửi OTP mới.',
@@ -233,6 +245,7 @@ export class AuthService {
   }
 
   async verifyOtp(email: string, otp: string): Promise<TokenResponseDto> {
+    assertContestOpen();
     email = normalizeEmail(email) as string;
     const result = await this.database.transaction(
       'READ COMMITTED',
@@ -244,6 +257,7 @@ export class AuthService {
           lock: { mode: 'pessimistic_write' },
         });
         const now = await this.now(tx);
+        assertContestOpen(now);
         if (
           !challenge ||
           challenge.consumedAt ||
