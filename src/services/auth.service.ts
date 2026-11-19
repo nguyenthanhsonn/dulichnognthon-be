@@ -29,7 +29,7 @@ import {
 } from '../modules/auth.model.js';
 import { AUTH_SETTINGS, type AuthSettings } from './auth.config.js';
 import { EMAIL_SENDER, type EmailSender } from './email/email-sender.js';
-import { normalizeEmail } from './dto/auth/email.js';
+import { isDisposableEmail, normalizeEmail } from './dto/auth/email.js';
 import {
   assertContestOpen,
   CONTEST_CLOSES_AT,
@@ -142,7 +142,6 @@ export class AuthService {
   ): Promise<SendOtpResponseDto> {
     assertContestOpen();
     email = normalizeEmail(email) as string;
-    this.assertAllowedEmail(email);
     // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
     this.mail.assertAvailable();
     const otp = randomInt(0, 1000000).toString().padStart(6, '0');
@@ -288,7 +287,6 @@ export class AuthService {
   async verifyOtp(email: string, otp: string): Promise<TokenResponseDto> {
     assertContestOpen();
     email = normalizeEmail(email) as string;
-    this.assertAllowedEmail(email);
     const result = await this.database.transaction(
       'READ COMMITTED',
       async (tx) => {

@@ -82,8 +82,7 @@ it('seeds thumbnails and images by source slug, supports dry-run/concurrency and
     insertedImages: 34,
     skippedImages: 1,
     updatedThumbnails: 35,
-    repeatedImageEntries: [
-    ],
+    repeatedImageEntries: [],
   });
   expect(await repo.find({ order: { slug: 'ASC' } })).toEqual(before);
   expect(await database.getRepository(DestinationMedia).count()).toBe(3);
