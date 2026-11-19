@@ -45,34 +45,6 @@ const invalidOtp = () =>
 const invalidSession = () =>
   new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
-const blockedEmailDomains = new Set([
-  'mailforspam.com',
-  'yopmail.com',
-  'yopmail.fr',
-  'yopmail.net',
-  'mailinator.com',
-  'haribu.net',
-  'guerrillamail.com',
-  'guerrillamail.net',
-  'guerrillamail.org',
-  'guerrillamail.biz',
-  'guerrillamail.de',
-  'guerrillamail.info',
-  'guerrillamailblock.com',
-  'sharklasers.com',
-  'grr.la',
-  'temp-mail.org',
-  '10minutemail.com',
-  'mohmal.com',
-  'duck.com',
-  'mozmail.com',
-  'relay.firefox.com',
-  'simplelogin.com',
-  'simplelogin.co',
-  'simplelogin.io',
-  'aleeas.com',
-  'slmail.me',
-]);
 
 /** Khóa và cập nhật OTP/session trong transaction để chống request đồng thời. */
 @Injectable()
@@ -117,14 +89,10 @@ export class AuthService {
   }
 
   private assertAllowedEmail(email: string): void {
-    const domain = email.slice(email.lastIndexOf('@') + 1);
-    const labels = domain.split('.');
-    for (let index = 0; index < labels.length - 1; index++) {
-      if (blockedEmailDomains.has(labels.slice(index).join('.'))) {
-        throw new BadRequestException(
-          'Email tạm thời hoặc email chuyển tiếp không được hỗ trợ. Vui lòng dùng email cá nhân.',
-        );
-      }
+    if (isDisposableEmail(email)) {
+      throw new BadRequestException(
+        'Hệ thống không chấp nhận địa chỉ email tạm thời. Vui lòng sử dụng email cá nhân chính chủ.',
+      );
     }
   }
 
@@ -142,6 +110,7 @@ export class AuthService {
   ): Promise<SendOtpResponseDto> {
     assertContestOpen();
     email = normalizeEmail(email) as string;
+    this.assertAllowedEmail(email);
     // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
     this.mail.assertAvailable();
     const otp = randomInt(0, 1000000).toString().padStart(6, '0');
@@ -287,6 +256,7 @@ export class AuthService {
   async verifyOtp(email: string, otp: string): Promise<TokenResponseDto> {
     assertContestOpen();
     email = normalizeEmail(email) as string;
+    this.assertAllowedEmail(email);
     const result = await this.database.transaction(
       'READ COMMITTED',
       async (tx) => {
@@ -326,6 +296,17 @@ export class AuthService {
           where: { email },
           lock: { mode: 'pessimistic_write' },
         });
+        if (!user && email.endsWith('@gmail.com')) {
+          // Khôi phục định danh cũ khi tài khoản được tạo trước khi chuẩn hóa Gmail.
+          user = await tx
+            .getRepository(User)
+            .createQueryBuilder('account')
+            .where('canonical_gmail_email(account.email) = :email', { email })
+            .orderBy('account.createdAt', 'ASC')
+            .addOrderBy('account.id', 'ASC')
+            .setLock('pessimistic_write')
+            .getOne();
+        }
         if (user?.isBlocked) return null;
         user ??= await tx.save(User, tx.create(User, { email }));
         // Đóng toàn bộ phiên, cho phép lần đăng nhập kế tiếp tạo phiên mới ngay.
@@ -383,7 +364,8 @@ export class AuthService {
           where: { id: session.userId },
           lock: { mode: 'pessimistic_read' },
         });
-        if (!user || user.isBlocked) return null;
+        if (!user || user.isBlocked || isDisposableEmail(user.email ?? ''))
+          return null;
         const replacement = `${session.id}.${randomBytes(32).toString('base64url')}`;
         // Khóa session bảo đảm một refresh token chỉ rotate thành công một lần.
         await tx.update(AuthSession, session.id, {
@@ -488,7 +470,8 @@ export class AuthService {
       !session ||
       session.revokedAt ||
       session.expiresAt <= new Date() ||
-      session.user.isBlocked
+      session.user.isBlocked ||
+      isDisposableEmail(session.user.email ?? '')
     )
       throw invalidSession();
     return this.userResponse(session.user);

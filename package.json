@@ -25,6 +25,7 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:migrate": "node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
+    "db:vote-review": "node dist/database/run-vote-review.js",
     "test:db": "vitest run --config vitest.config.database.ts",
     "db:migration:show": "node node_modules/typeorm/cli.js migration:show -d dist/database/data-source.js",
     "db:migration:generate": "node node_modules/typeorm/cli.js migration:generate -d dist/database/data-source.js",

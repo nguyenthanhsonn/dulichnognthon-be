@@ -94,6 +94,38 @@ async function send(number = email(), path = '/auth/otp/send') {
   return { number, code: delivered.get(number)!, response };
 }
 
+it('rejects anonmart on send, resend and verify before issuing an OTP', async () => {
+  const address = 'becobo2852@anonmart.com';
+  const calls = mail.sendOtp.mock.calls.length;
+  for (const action of ['send', 'resend', 'verify']) {
+    await request(app.getHttpServer())
+      .post('/auth/otp/' + action)
+      .send({ email: address, otp: '123456' })
+      .expect(400);
+  }
+  expect(mail.sendOtp.mock.calls).toHaveLength(calls);
+  expect(
+    await database.getRepository(OtpCode).countBy({ email: address }),
+  ).toBe(0);
+});
+
+it('reuses a legacy Gmail alias account when verifying a canonical address', async () => {
+  const local = randomUUID().replaceAll('-', '');
+  const address = local + '@gmail.com';
+  const existing = await database.getRepository(User).save({
+    email: local.slice(0, 3) + '.' + local.slice(3) + '+old@googlemail.com',
+  });
+  const { code } = await send(address);
+  const response = await request(app.getHttpServer())
+    .post('/auth/otp/verify')
+    .send({ email: address, otp: code })
+    .expect(200);
+  expect(response.body.user.id).toBe(existing.id);
+  expect(await database.getRepository(User).countBy({ email: address })).toBe(
+    0,
+  );
+});
+
 async function login() {
   const challenge = await send();
   const response = await request(app.getHttpServer())

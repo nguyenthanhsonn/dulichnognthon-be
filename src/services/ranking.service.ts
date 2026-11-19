@@ -185,7 +185,14 @@ export class RankingService implements OnModuleDestroy {
     const query = this.database
       .getRepository(Destination)
       .createQueryBuilder('destination')
-      .leftJoin(Vote, 'vote', 'vote.destinationId = destination.id')
+      .leftJoin(
+        Vote,
+        'vote',
+        `vote.destinationId = destination.id AND NOT EXISTS (
+          SELECT 1 FROM vote_disqualifications decision
+          WHERE decision.vote_id = vote.id AND decision.restored_at IS NULL
+        )`,
+      )
       .where('destination.isActive = :active', { active: true })
       .select('destination.id', 'id')
       .addSelect('destination.title', 'title')

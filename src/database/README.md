@@ -70,6 +70,29 @@ Khóa ngoại vote dùng RESTRICT, OTP/session/media dùng CASCADE, audit dùng 
 CHECK giới hạn media IMAGE/VIDEO, audit SUCCESS/REJECTED, số lần thử OTP không âm.
 Trigger cập nhật `updated_at` kể cả khi sửa dữ liệu bằng SQL trực tiếp.
 
+## Đối soát phiếu theo kịch bản B
+
+Chạy `npm run build` trước khi dùng công cụ. Chọn mốc chốt có múi giờ do Ban
+tổ chức duyệt. Công cụ xét các phiếu ghi trước mốc đó. Có thể truyền thêm các tên
+miền đã được duyệt sau tham số cuối, mỗi tên miền là một tham số riêng.
+
+```bash
+npm run db:vote-review -- preview "$CUTOFF_ISO"
+npm run db:vote-review -- apply "$CUTOFF_ISO" "$FINGERPRINT" "$APPROVER"
+npm run db:vote-review -- restore-domain "$APPROVED_DOMAIN" "$APPROVER" "$REVIEW_NOTE"
+````
+
+`preview` chỉ đọc và xuất tổng phiếu, số phiếu theo điểm đến và mã đối chiếu
+`fingerprint`. Sau khi duyệt kết quả, chạy migration trước khi dùng `apply`.
+`apply` dùng cùng mốc và danh sách tên miền với bản xem trước, đối chiếu mã rồi
+ghi lý do theo từng phiếu trong một giao dịch. Chạy lại giữ nguyên quyết định đã
+ghi và lịch sử phúc khảo. Danh sách xếp hạng, Top 3 và luồng cập nhật dùng cùng
+điều kiện loại trừ. Thay đổi từ CLI được phản ánh trong lần làm mới tiếp theo.
+
+`restore-domain` gỡ đúng lý do tên miền của các phiếu khớp tên miền chỉ định,
+kèm người duyệt, thời gian và lý do. Nếu phiếu còn lý do loại trừ khác, vẫn tiếp
+tục áp dụng lý do đó. Phiếu gốc luôn được lưu trong `votes` để đối chiếu.
+
 ## Cấu hình hội thi và kiểm thử
 
 Lịch mở/đóng bình chọn do frontend quản lý; backend không kiểm tra thời gian.

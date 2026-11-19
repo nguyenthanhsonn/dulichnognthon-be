@@ -12,6 +12,7 @@ import {
   AuthSession,
 } from '../src/database/entities/voting.entities.js';
 import { VotesRepository } from '../src/database/votes.repository.js';
+import { RankingService } from '../src/services/ranking.service.js';
 
 // Mọi dữ liệu test nằm trong schema UUID riêng, không ghi vào bảng public.
 const schema = `test_${randomUUID().replaceAll('-', '')}`;
@@ -58,13 +59,94 @@ async function fixtures(count = 1, blocked = false, active = true) {
   return { user, destinations };
 }
 
-it('creates exactly seven tables and stores Vietnamese table comments', async () => {
+it('creates eight tables and stores Vietnamese table comments', async () => {
   const { rows } = await client.query(
     "SELECT tablename, obj_description((quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass) AS comment FROM pg_tables WHERE schemaname = $1 AND tablename <> 'typeorm_migrations'",
     [schema],
   );
-  expect(rows).toHaveLength(7);
+  expect(rows).toHaveLength(8);
   expect(rows.every((row) => Boolean(row.comment))).toBe(true);
+});
+
+it('uses one Gmail mailbox per destination even for concurrent legacy aliases', async () => {
+  const local = randomUUID().replaceAll('-', '');
+  const users = await dataSource
+    .getRepository(User)
+    .save([
+      { email: local + '@gmail.com' },
+      {
+        email:
+          local.slice(0, 3) + '.' + local.slice(3) + '+alias@googlemail.com',
+      },
+    ]);
+  const {
+    destinations: [first, second],
+  } = await fixtures(2);
+  const results = await Promise.all(
+    users.map((user) => votes.castVote(user.id, first.id)),
+  );
+  expect(results.filter((result) => result.accepted)).toHaveLength(1);
+  expect(results).toContainEqual({ accepted: false, reason: 'ALREADY_VOTED' });
+  expect(await votes.castVote(users[1].id, second.id)).toMatchObject({
+    accepted: true,
+  });
+});
+
+it('rejects an existing disposable account before writing a vote', async () => {
+  const user = await dataSource
+    .getRepository(User)
+    .save({ email: randomUUID() + '@sub.anonmart.com' });
+  const {
+    destinations: [destination],
+  } = await fixtures();
+  expect(await votes.castVote(user.id, destination.id)).toEqual({
+    accepted: false,
+    reason: 'USER_BLOCKED',
+  });
+  expect(
+    await dataSource.getRepository(Vote).countBy({ userId: user.id }),
+  ).toBe(0);
+});
+
+it('keeps destinations with zero eligible votes and restores only after the last exclusion is lifted', async () => {
+  const {
+    user,
+    destinations: [destination],
+  } = await fixtures();
+  const result = await votes.castVote(user.id, destination.id);
+  if (!result.accepted)
+    throw new Error('Expected the test vote to be accepted.');
+  const ranking = new RankingService(dataSource);
+  try {
+    await dataSource.query(
+      `INSERT INTO vote_disqualifications (vote_id, reason, cutoff_at, disqualified_by)
+      VALUES ($1, 'UNAPPROVED_DOMAIN', now(), 'BTC'), ($1, 'DUPLICATE_GMAIL_SAME_DESTINATION', now(), 'BTC')`,
+      [result.vote.id],
+    );
+    const score = async () => {
+      ranking.invalidate();
+      return (await ranking.list()).items.find(
+        (item) => item.id === destination.id,
+      )?.voteCount;
+    };
+    expect(await score()).toBe(0);
+    for (const reason of [
+      'UNAPPROVED_DOMAIN',
+      'DUPLICATE_GMAIL_SAME_DESTINATION',
+    ]) {
+      await dataSource.query(
+        `UPDATE vote_disqualifications SET restored_at = now(), restored_by = 'BTC', restoration_note = 'Phúc khảo'
+        WHERE vote_id = $1 AND reason = $2`,
+        [result.vote.id, reason],
+      );
+      expect(await score()).toBe(reason === 'UNAPPROVED_DOMAIN' ? 0 : 1);
+    }
+    expect(
+      await dataSource.getRepository(Vote).countBy({ id: result.vote.id }),
+    ).toBe(1);
+  } finally {
+    ranking.onModuleDestroy();
+  }
 });
 
 it('allows eight distinct concurrent votes and persists every successful audit', async () => {

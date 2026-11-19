@@ -2,6 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { isContestClosed } from '../common/contest-deadline.js';
 import {
+  isDisposableEmail,
+  normalizeEmail,
+} from '../services/dto/auth/email.js';
+import {
   User,
   Destination,
   Vote,
@@ -66,12 +70,34 @@ export class VotesRepository {
         };
 
         if (!user) return reject('USER_NOT_FOUND');
-        if (user.isBlocked) return reject('USER_BLOCKED');
+        if (user.isBlocked || isDisposableEmail(user.email ?? ''))
+          return reject('USER_BLOCKED');
         if (!destination) return reject('DESTINATION_NOT_FOUND');
         if (!destination.isActive) return reject('DESTINATION_INACTIVE');
 
         // Kiểm tra đồng hồ DB sau khi chờ khóa, kể cả phiên đăng nhập còn hiệu lực.
-        const existing = await tx.findOneBy(Vote, { userId, destinationId });
+        const email = normalizeEmail(user.email);
+        let existing: boolean;
+        if (typeof email === 'string' && email.endsWith('@gmail.com')) {
+          // Các tài khoản Gmail cũ cùng hộp thư vẫn phải dùng chung khóa cho một điểm đến.
+          await tx.query(
+            'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
+            [`vote:gmail:${destinationId}:${email}`],
+          );
+          existing = await tx
+            .getRepository(Vote)
+            .createQueryBuilder('vote')
+            .innerJoin(User, 'account', 'account.id = vote.userId')
+            .where('vote.destinationId = :destinationId', { destinationId })
+            .andWhere('canonical_gmail_email(account.email) = :email', {
+              email,
+            })
+            .getExists();
+        } else {
+          existing = Boolean(
+            await tx.findOneBy(Vote, { userId, destinationId }),
+          );
+        }
         if (existing) return reject('ALREADY_VOTED');
 
         const [writeClock] = await tx.query<{ now: Date }[]>(
