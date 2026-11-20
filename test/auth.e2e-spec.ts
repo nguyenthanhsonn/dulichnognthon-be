@@ -10,6 +10,9 @@ import { AuthController } from '../src/controllers/auth.controller.js';
 import { AuthService } from '../src/services/auth.service.js';
 import { AccessTokenGuard } from '../src/guards/access-token.guard.js';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
+import { otpCors } from '../src/common/otp-cors.js';
+
+const productionOrigin = 'https://www.dulichnongthon.vn';
 
 describe('Auth request validation and IP throttling', () => {
   let app: INestApplication;
@@ -29,12 +32,42 @@ describe('Auth request validation and IP throttling', () => {
       providers: [{ provide: AuthService, useValue: auth }, AccessTokenGuard],
     }).compile();
     app = module.createNestApplication();
+    app.enableCors(otpCors);
     app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
   });
   afterEach(async () => {
     await app.close();
   });
+
+  it.each(['send', 'resend', 'verify'])(
+    'accepts production browser preflights for OTP %s',
+    async (action) => {
+      await request(app.getHttpServer())
+        .options(`/auth/otp/${action}`)
+        .set('Origin', productionOrigin)
+        .set('Access-Control-Request-Method', 'POST')
+        .set('Access-Control-Request-Headers', 'content-type')
+        .expect('Access-Control-Allow-Origin', productionOrigin)
+        .expect('Access-Control-Allow-Methods', 'POST')
+        .expect('Access-Control-Allow-Headers', 'Content-Type')
+        .expect(204);
+    },
+  );
+
+  it.each([
+    ['/auth/otp/send', 'https://example.com'],
+    ['/auth/refresh', productionOrigin],
+  ])(
+    'does not allow cross-origin access to %s from %s',
+    async (path, origin) => {
+      const response = await request(app.getHttpServer())
+        .options(path)
+        .set('Origin', origin)
+        .set('Access-Control-Request-Method', 'POST');
+      expect(response.headers['access-control-allow-origin']).toBeUndefined();
+    },
+  );
 
   it('normalizes email addresses before calling the service', async () => {
     await request(app.getHttpServer())
@@ -116,7 +149,10 @@ describe('Auth request validation and IP throttling', () => {
     }
     const blocked = await request(app.getHttpServer())
       .post('/auth/otp/resend')
+      .set('Origin', productionOrigin)
       .send({ email: 'next@example.com' })
+      .expect('Access-Control-Allow-Origin', productionOrigin)
+      .expect('Access-Control-Expose-Headers', /Retry-After/i)
       .expect(429);
     expect(blocked.body.message).toContain('Có nhiều yêu cầu từ mạng của bạn');
     expect(blocked.body.message).not.toContain('ThrottlerException');

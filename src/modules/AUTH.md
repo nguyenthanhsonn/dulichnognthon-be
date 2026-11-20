@@ -269,8 +269,9 @@ Response auth dùng `Cache-Control: no-store`.
   Ngưỡng IP cho phép nhiều người chung Wi-Fi/NAT; cooldown và quota email trong
   DB vẫn áp dụng độc lập. Lỗi IP trả thông báo tiếng Việt cùng header `Retry-After`
   (số giây cần chờ), không trả chuỗi `ThrottlerException` ra giao diện.
-  Khi có thêm proxy phía trước Render, cần kiểm tra đường đi thực tế của request
-  trước khi đổi `TRUST_PROXY_HOPS`; không tin toàn bộ header IP do client gửi.
+  Frontend production gọi trực tiếp ba route OTP trên Render để bộ đếm nhận
+  diện IP của người dùng. CORS cho phép hai origin `dulichnongthon.vn` và
+  `www.dulichnongthon.vn` qua HTTPS, đồng thời cho trình duyệt đọc `Retry-After`.
 - Access token HS256 sống 15 phút, kiểm tra issuer/audience, session và blocked user.
   Logout khiến access token bị từ chối ở lần kiểm tra sau.
 - Refresh token opaque có secret 256 bit, chỉ lưu SHA-256, session hết hạn tuyệt đối

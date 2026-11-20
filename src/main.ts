@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { otpCors } from './common/otp-cors.js';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -11,6 +12,7 @@ async function bootstrap() {
     throw new Error('TRUST_PROXY_HOPS must be an integer between 0 and 5.');
   }
   app.set('trust proxy', proxyHops);
+  app.enableCors(otpCors);
   app.enableShutdownHooks();
   // Render cấp PORT qua môi trường; local dùng giá trị PORT trong .env.
   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
