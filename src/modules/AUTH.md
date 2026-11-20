@@ -132,7 +132,10 @@ chấp nhận và reset vào 00:00 giờ Pacific (`America/Los_Angeles`).
   Backend thử tài khoản kế tiếp ngay.
 - **Mạng hoặc 5xx** — thử lại tối đa hai lần trên cùng tài khoản, chờ 250 ms rồi
   500 ms. Sau đó chuyển sang tài khoản kế tiếp và giữ tài khoản cũ khả dụng cho
-  request mới. Timeout sau khi Gmail nhận request có thể khiến người nhận nhận
+  request mới. Mỗi lần gọi Gmail gửi thư chờ tối đa 3,5 giây. Nếu hết thời gian
+  chờ, backend chuyển ngay sang tài khoản kế tiếp. Sau 8 giây kể từ khi bắt đầu
+  luồng Gmail, backend ngắt lượt gửi đang chờ và dừng thử lượt mới. Timeout sau
+  khi Gmail nhận request có thể khiến người nhận nhận
   nhiều bản sao của cùng một OTP.
 - **Lỗi OAuth/API chưa phân loại hoặc phản hồi chấp nhận không hợp lệ** — tạm
   nghỉ tài khoản 60 giây và thử tài khoản kế tiếp ngay. Lỗi tạo MIME chung vẫn
@@ -261,6 +264,9 @@ Response auth dùng `Cache-Control: no-store`.
   Gửi lại vô hiệu mã cũ; một mã chỉ được xác thực thành công một lần.
 - Advisory lock PostgreSQL theo email bảo vệ send/verify giữa các instance,
   kể cả trước khi user tồn tại. Chỉ tạo user sau khi xác thực thành công.
+- Mỗi instance xử lý tối đa 8 lượt send/resend đồng thời để chừa 2 kết nối
+  trong pool PostgreSQL cho xác thực và API khác. Request vượt số lượt xử lý
+  đồng thời trả 503 trước khi lấy kết nối DB.
 - Trong phiên đang chờ, mỗi lần resend cách ít nhất 60 giây và tối đa 3 lần/phiên.
   Quota chống spam độc lập mặc định 10 challenge/email/giờ, tính cả các phiên đã
   hoàn tất. Chỉ lần gửi thành công mới tính quota email. Trả 429 khi vượt giới hạn.

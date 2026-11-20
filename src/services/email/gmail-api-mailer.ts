@@ -1,3 +1,4 @@
+import { addAbortListener } from 'node:events';
 import { OAuth2Client } from 'google-auth-library';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 
@@ -210,19 +211,39 @@ export class GmailApiMailer {
     this.oauth = new OAuth2Client({
       clientId: settings.clientId,
       clientSecret: settings.clientSecret,
-      transporterOptions: { timeout: 10000, retry: false },
+      transporterOptions: { timeout: 3000, retry: false },
     });
     // Thư viện Google cache access token, tự refresh và gộp refresh đồng thời.
     this.oauth.setCredentials({ refresh_token: settings.refreshToken });
   }
 
-  async quotaBounceUntil(subject: string): Promise<number> {
+  private async accessToken(
+    signal: AbortSignal,
+  ): Promise<string | null | undefined> {
+    signal.throwIfAborted();
+    // OAuth refresh is shared, so stop waiting without canceling another request's refresh.
+    return new Promise((resolve, reject) => {
+      const listener = addAbortListener(signal, () => reject(signal.reason));
+      void this.oauth
+        .getAccessToken()
+        .finally(() => listener[Symbol.dispose]())
+        .then(({ token }) => resolve(token), reject);
+    });
+  }
+
+  async quotaBounceUntil(
+    subject: string,
+    deliverySignal: AbortSignal,
+  ): Promise<number> {
     try {
-      const { token } = await this.oauth.getAccessToken();
+      const token = await this.accessToken(deliverySignal);
       if (!token) throw new GmailDeliveryError('bounce', 'missing_token');
 
       const headers = { Authorization: `Bearer ${token}` };
-      const signal = AbortSignal.timeout(3500);
+      const signal = AbortSignal.any([
+        deliverySignal,
+        AbortSignal.timeout(3500),
+      ]);
       const after = Math.floor((Date.now() - quotaBouncePauseMs) / 1000);
       const phrases = quotaBounceText.map((phrase) => `"${phrase}"`).join(' ');
       const { data } = await this.oauth.transporter.request<{
@@ -292,10 +313,11 @@ export class GmailApiMailer {
     to: string,
     subject: string,
     text: string,
+    signal: AbortSignal,
   ): Promise<string> {
     let token: string | null | undefined;
     try {
-      ({ token } = await this.oauth.getAccessToken());
+      token = await this.accessToken(signal);
     } catch (error) {
       throw deliveryError('oauth', error);
     }
@@ -318,6 +340,7 @@ export class GmailApiMailer {
     }
     let response;
     try {
+      signal.throwIfAborted();
       response = await this.oauth.transporter.request<{ id?: unknown }>({
         url: `${gmailMessagesUrl}/send`,
         method: 'POST',
@@ -326,7 +349,8 @@ export class GmailApiMailer {
           'Content-Type': 'application/json',
         },
         data: { raw: message.toString('base64url') },
-        timeout: 15000,
+        signal,
+        timeout: 3500,
         retry: false,
       });
     } catch (error) {

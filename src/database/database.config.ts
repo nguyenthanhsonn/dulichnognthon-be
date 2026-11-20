@@ -10,6 +10,8 @@ import { OtpFlows1793839000000 } from './migrations/1793839000000-otp-flows.js';
 import { DestinationCards1793842000000 } from './migrations/1793842000000-destination-cards.js';
 import { VoteDisqualifications1793843000000 } from './migrations/1793843000000-vote-disqualifications.js';
 
+export const DATABASE_POOL_SIZE = 10;
+
 export function getDatabaseUrl(connectionString: string | undefined): string {
   const url = connectionString?.trim();
   if (!url) {
@@ -71,7 +73,7 @@ export function createDatabaseOptions(
     logging: false,
     uuidExtension: 'pgcrypto',
     installExtensions: false,
-    poolSize: 10,
+    poolSize: DATABASE_POOL_SIZE,
     connectTimeoutMS: 5000,
     // Raw query và QueryBuilder luôn thao tác trên cùng schema.
     extra: { options: `-c search_path=${schema}` },

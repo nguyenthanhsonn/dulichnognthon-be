@@ -300,7 +300,8 @@ const gmailPoolWithBounceCheck = {
 function mockGmailRequests(request: ReturnType<typeof vi.fn>) {
   vi.spyOn(OAuth2Client.prototype, 'getAccessToken').mockImplementation(
     async function (this: OAuth2Client) {
-      this.transporter.request = request;
+      this.transporter.request =
+        request as unknown as typeof this.transporter.request;
       return { token: String(this.credentials.refresh_token) };
     },
   );
@@ -529,6 +530,51 @@ it('rotates concurrent requests before the first Gmail acceptance returns', asyn
       .map(([options]) => options.headers.Authorization)
       .sort((left: string, right: string) => left.localeCompare(right)),
   ).toEqual(['Bearer backup-token', 'Bearer primary-token']);
+});
+
+it('switches to the backup account after a Gmail send timeout', async () => {
+  const request = vi
+    .fn()
+    .mockRejectedValueOnce({ code: 'TimeoutError' })
+    .mockResolvedValueOnce({ status: 200, data: { id: 'accepted' } });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(new ConfigService(gmailPool));
+
+  await service.sendOtp('voter@example.com', '123456', context);
+
+  expect(
+    request.mock.calls.map(([options]) => options.headers.Authorization),
+  ).toEqual(['Bearer primary-token', 'Bearer backup-token']);
+});
+
+it('cancels a slow Gmail send at the request deadline without trying another account', async () => {
+  const deadline = new AbortController();
+  let onSendStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    onSendStarted = resolve;
+  });
+  const timeout = vi.spyOn(AbortSignal, 'timeout');
+  timeout.mockReturnValueOnce(deadline.signal);
+  const request = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
+    onSendStarted();
+    return new Promise((_, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), {
+        once: true,
+      });
+    });
+  });
+  mockGmailRequests(request);
+  const service = new OtpEmailService(new ConfigService(gmailPool));
+
+  const delivery = service.sendOtp('voter@example.com', '123456', context);
+  await started;
+  deadline.abort(new DOMException('Gmail timed out', 'TimeoutError'));
+
+  await expect(delivery).rejects.toMatchObject({ status: 503 });
+  expect(timeout).toHaveBeenCalledWith(8000);
+  expect(request).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ timeout: 3500, signal: deadline.signal }),
+  );
 });
 
 it('switches within the same request when a quota bounce appears after Gmail accepts the OTP', async () => {

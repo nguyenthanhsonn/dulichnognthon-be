@@ -12,6 +12,7 @@ import {
   HttpException,
   Inject,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -30,6 +31,7 @@ import {
 import { AUTH_SETTINGS, type AuthSettings } from './auth.config.js';
 import { EMAIL_SENDER, type EmailSender } from './email/email-sender.js';
 import { isDisposableEmail, normalizeEmail } from './dto/auth/email.js';
+import { DATABASE_POOL_SIZE } from '../database/database.config.js';
 import {
   assertContestOpen,
   CONTEST_CLOSES_AT,
@@ -46,9 +48,13 @@ const invalidSession = () =>
   new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
 const uuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
+const maxConcurrentOtpDeliveries = DATABASE_POOL_SIZE - 2;
+
 /** Khóa và cập nhật OTP/session trong transaction để chống request đồng thời. */
 @Injectable()
 export class AuthService {
+  private activeOtpDeliveries = 0;
+
   constructor(
     @Inject(DataSource) private readonly database: DataSource,
     @Inject(JwtService) private readonly jwt: JwtService,
@@ -113,6 +119,22 @@ export class AuthService {
     this.assertAllowedEmail(email);
     // Kiểm tra cấu hình trước khi tạo challenge, không báo gửi thành công giả.
     this.mail.assertAvailable();
+    // Chừa kết nối cho xác thực OTP và các API khác khi provider gửi thư chậm.
+    if (this.activeOtpDeliveries >= maxConcurrentOtpDeliveries) {
+      throw new ServiceUnavailableException('Hệ thống đang bận gửi OTP.');
+    }
+    this.activeOtpDeliveries++;
+    try {
+      return await this.deliverOtp(email, requestType);
+    } finally {
+      this.activeOtpDeliveries--;
+    }
+  }
+
+  private async deliverOtp(
+    email: string,
+    requestType: 'SEND' | 'RESEND',
+  ): Promise<SendOtpResponseDto> {
     const otp = randomInt(0, 1000000).toString().padStart(6, '0');
     return this.database.transaction<SendOtpResponseDto>(
       'READ COMMITTED',
@@ -152,7 +174,7 @@ export class AuthService {
             429,
           );
         }
-        // Phiên đã xác thực được bắt đầu lại ngay; IP/quota email vẫn áp dụng.
+        // Phiên đã xác thực được bắt đầu lại ngay nếu còn quota email.
         // Các lần resend và phiên bỏ dở vẫn phải chờ cooldown để tránh reset né giới hạn.
         if (latest && !latest.verifiedAt) {
           const wait = Math.ceil(

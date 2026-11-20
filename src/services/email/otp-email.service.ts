@@ -229,6 +229,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
     label: string,
     subject: string,
     challengeId: string,
+    signal: AbortSignal,
     force = false,
   ): Promise<void> {
     if (!account.checkQuotaBounces) return;
@@ -236,12 +237,13 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
     if (force && account.bounceCheck) await account.bounceCheck;
     if (
       !account.checkQuotaBounces ||
+      signal.aborted ||
       (!force && account.nextBounceCheckAt > Date.now())
     )
       return;
 
     account.bounceCheck ??= account.mailer
-      .quotaBounceUntil(subject)
+      .quotaBounceUntil(subject, signal)
       .then((until) => {
         if (until <= Date.now()) return;
         account.exhaustedUntil = Math.max(account.exhaustedUntil, until);
@@ -358,6 +360,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
     text: string,
     challengeId: string,
   ): Promise<void> {
+    const signal = AbortSignal.timeout(8000);
     const disabledAccounts = this.disabledGmailAccounts();
     this.gmail ??= settings.accounts.map((account) => ({
       from: account.from,
@@ -384,6 +387,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
         Number(right.recoveringFromRateLimit),
     );
     for (const [index, account] of candidates) {
+      signal.throwIfAborted();
       const label = `account=${index + 1} sender=${account.from[0]}***@${account.from.split('@').at(-1)}`;
       const accountLog = `${label} challengeId=${challengeId}`;
       const now = Date.now();
@@ -397,8 +401,15 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
       // Cập nhật trước khi chờ mạng để các request đồng thời cũng luân phiên.
       this.nextGmailAccount = (index + 1) % this.gmail.length;
       try {
-        await this.checkGmailQuotaBounce(account, label, subject, challengeId);
+        await this.checkGmailQuotaBounce(
+          account,
+          label,
+          subject,
+          challengeId,
+          signal,
+        );
         for (let attempt = 1; attempt <= 3; attempt++) {
+          signal.throwIfAborted();
           if (account.disabled || account.exhaustedUntil > Date.now()) break;
           try {
             const id = await account.mailer.send(
@@ -406,17 +417,19 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
               email,
               subject,
               text,
+              signal,
             );
             const acceptedAt = Date.now();
             refreshGmailDay(account, acceptedAt);
             account.sentToday++;
-            if (account.checkQuotaBounces) {
+            if (account.checkQuotaBounces && !signal.aborted) {
               await delay(500);
               await this.checkGmailQuotaBounce(
                 account,
                 label,
                 subject,
                 challengeId,
+                signal,
                 true,
               );
               if (account.exhaustedUntil > Date.now()) break;
@@ -437,7 +450,11 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
           } catch (error) {
             if (!(error instanceof GmailDeliveryError)) throw error;
             const now = Date.now();
-            const retry = error.kind === 'transient' && attempt < 3;
+            const retry =
+              error.kind === 'transient' &&
+              error.reason !== 'TimeoutError' &&
+              error.reason !== 'ETIMEDOUT' &&
+              attempt < 3;
             let action = 'stop';
             switch (error.kind) {
               case 'auth':
@@ -482,7 +499,7 @@ export class OtpEmailService implements EmailSender, OnModuleDestroy {
             );
             if (action === 'stop') throw error;
             if (!retry) break;
-            await delay(250 * 2 ** (attempt - 1));
+            await delay(250 * 2 ** (attempt - 1), undefined, { signal });
           }
         }
       } finally {

@@ -47,6 +47,39 @@ function authFixture(clock = new Date(CONTEST_CLOSES_AT)) {
   return { auth, transaction, tx, mail };
 }
 
+it('reserves database capacity during OTP delivery and releases it after a failure', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(CONTEST_CLOSES_AT - 1000);
+  const { auth, transaction, mail } = authFixture(
+    new Date(CONTEST_CLOSES_AT - 1000),
+  );
+  let failDelivery!: (error: Error) => void;
+  const busy = new Promise<void>((_resolve, reject) => {
+    failDelivery = reject;
+  });
+  mail.sendOtp.mockReturnValue(busy);
+  const deliveries = Array.from({ length: 8 }, (_, index) =>
+    auth.sendOtp(`voter${index}@example.com`),
+  );
+  const settled = Promise.allSettled(deliveries);
+
+  try {
+    await expect(auth.resendOtp('next@example.com')).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(transaction).toHaveBeenCalledTimes(8);
+  } finally {
+    failDelivery(new Error('Gmail unavailable'));
+    await settled;
+  }
+
+  mail.sendOtp.mockResolvedValue(undefined);
+  await expect(auth.sendOtp('next@example.com')).resolves.toMatchObject({
+    message: 'OTP đã được gửi.',
+  });
+  expect(transaction).toHaveBeenCalledTimes(9);
+});
+
 describe('contest closure at midnight Vietnam time', () => {
   it('caps a last-second OTP and its flow to the contest deadline', async () => {
     vi.useFakeTimers();
