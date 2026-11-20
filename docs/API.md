@@ -118,7 +118,6 @@ Email dùng cùng validation và chuẩn hóa với `/auth/otp/send`. Không c�
 - Sinh OTP ngẫu nhiên mới, vô hiệu mã cũ. Mã mới có tối đa 3 lần nhập sai, kể cả mã trước đã hết hạn hoặc bị khóa do nhập sai.
 - Gửi lại thất bại giữ mã cũ và không tính lượt resend, quota email hay cooldown.
 - Không nhận `requestType`, `flowId`, `userId` hoặc số lượt do client truyền. Backend quản lý phiên đang chờ theo email và khóa bằng database; không cần đổi request hiện tại.
-- Send và resend dùng chung giới hạn IP 5 request/phút.
 
 **Response 202 Accepted**
 
@@ -631,7 +630,7 @@ Lỗi gửi thư ví dụ:
 - Filter che chi tiết mọi lỗi 5xx bằng `Internal server error`, không trả lỗi gốc/token Google.
 - API hiện **không có field `code` nghiệp vụ** như `OTP_EXPIRED` hay `ALREADY_VOTED`. Không giả định có các field này.
 - Dùng HTTP status và message để xử lý giao diện; gửi `requestId` khi cần BE tra lỗi.
-- Auth có IP throttling: send và resend dùng chung 5/phút, verify 15/phút, refresh/logout/me mặc định 60/phút. Không áp các mức này như thể đã có cho toàn bộ API Destination/Voting/Ranking.
+- Giới hạn theo IP áp dụng cho verify (120/phút) và refresh/logout/me (60/phút). Send và resend áp dụng hạn mức theo email.
 - Bộ đếm IP hiện ở RAM mỗi instance và reset khi restart; hạn mức email/cooldown dùng database.
 - Chưa tích hợp Turnstile/CAPTCHA, giới hạn tổng số thư toàn hệ thống hoặc bộ đếm IP dùng chung nhiều instance.
 

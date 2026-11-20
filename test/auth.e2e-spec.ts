@@ -140,45 +140,21 @@ describe('Auth request validation and IP throttling', () => {
     expect(response.headers['cache-control']).toBe('no-store');
   });
 
-  it('shares the IP sending limit between send and resend endpoints', async () => {
-    for (let i = 0; i < 60; i++) {
-      await request(app.getHttpServer())
-        .post(i % 2 ? '/auth/otp/resend' : '/auth/otp/send')
-        .send({ email: `voter${i}@example.com` })
-        .expect(202);
-    }
-    const blocked = await request(app.getHttpServer())
-      .post('/auth/otp/resend')
-      .set('Origin', productionOrigin)
-      .send({ email: 'next@example.com' })
-      .expect('Access-Control-Allow-Origin', productionOrigin)
-      .expect('Access-Control-Expose-Headers', /Retry-After/i)
-      .expect(429);
-    expect(blocked.body.message).toContain('Có nhiều yêu cầu từ mạng của bạn');
-    expect(blocked.body.message).not.toContain('ThrottlerException');
-    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
-    await request(app.getHttpServer())
-      .post('/auth/otp/send')
-      .send({ email: 'next@example.com' })
-      .expect(429);
-    expect(
-      auth.sendOtp.mock.calls.length + auth.resendOtp.mock.calls.length,
-    ).toBe(60);
-  });
-
-  it('limits send requests by IP even for different email addresses', async () => {
-    for (let i = 0; i < 60; i++) {
-      await request(app.getHttpServer())
-        .post('/auth/otp/send')
-        .send({ email: `voter${i}@example.com` })
-        .expect(202);
-    }
-    await request(app.getHttpServer())
-      .post('/auth/otp/send')
-      .send({ email: 'another@example.com' })
-      .expect(429);
-    expect(auth.sendOtp).toHaveBeenCalledTimes(60);
-  });
+  it.each([
+    ['send', auth.sendOtp],
+    ['resend', auth.resendOtp],
+  ] as const)(
+    'allows more than 60 OTP %s requests from one IP',
+    async (action, serviceMethod) => {
+      for (let i = 0; i < 61; i++) {
+        await request(app.getHttpServer())
+          .post(`/auth/otp/${action}`)
+          .send({ email: `voter${i}@example.com` })
+          .expect(202);
+      }
+      expect(serviceMethod).toHaveBeenCalledTimes(61);
+    },
+  );
 
   it('allows more than five voters and fifteen verifications on the same Wi-Fi', async () => {
     for (let i = 0; i < 20; i++) {
@@ -195,39 +171,45 @@ describe('Auth request validation and IP throttling', () => {
     expect(auth.verifyOtp).toHaveBeenCalledTimes(20);
   });
 
-  it('separates client IPs behind a trusted single-hop proxy', async () => {
+  it('limits OTP verification per IP behind a trusted single-hop proxy', async () => {
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
       await request(app.getHttpServer())
-        .post('/auth/otp/send')
+        .post('/auth/otp/verify')
         .set('X-Forwarded-For', '203.0.113.1')
-        .send({ email: `voter${i}@example.com` })
-        .expect(202);
+        .send({ email: `voter${i}@example.com`, otp: '123456' })
+        .expect(200);
     }
-    await request(app.getHttpServer())
-      .post('/auth/otp/send')
+    const blocked = await request(app.getHttpServer())
+      .post('/auth/otp/verify')
+      .set('Origin', productionOrigin)
       .set('X-Forwarded-For', '203.0.113.1')
-      .send({ email: 'blocked@example.com' })
+      .send({ email: 'blocked@example.com', otp: '123456' })
+      .expect('Access-Control-Allow-Origin', productionOrigin)
+      .expect('Access-Control-Expose-Headers', /Retry-After/i)
       .expect(429);
+    expect(blocked.body.message).toContain('Có nhiều yêu cầu từ mạng của bạn');
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
     await request(app.getHttpServer())
-      .post('/auth/otp/send')
+      .post('/auth/otp/verify')
       .set('X-Forwarded-For', '203.0.113.2')
-      .send({ email: 'new@example.com' })
-      .expect(202);
+      .send({ email: 'new@example.com', otp: '123456' })
+      .expect(200);
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(121);
   });
 
   it('does not let untrusted forwarded headers bypass the IP limit', async () => {
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 120; i++) {
       await request(app.getHttpServer())
-        .post('/auth/otp/send')
+        .post('/auth/otp/verify')
         .set('X-Forwarded-For', `203.0.113.${i + 1}`)
-        .send({ email: `voter${i}@example.com` })
-        .expect(202);
+        .send({ email: `voter${i}@example.com`, otp: '123456' })
+        .expect(200);
     }
     await request(app.getHttpServer())
-      .post('/auth/otp/send')
+      .post('/auth/otp/verify')
       .set('X-Forwarded-For', '203.0.113.200')
-      .send({ email: 'blocked@example.com' })
+      .send({ email: 'blocked@example.com', otp: '123456' })
       .expect(429);
   });
 });

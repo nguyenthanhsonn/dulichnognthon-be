@@ -9,7 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from '../services/auth.service.js';
 import { SendOtpRequestDto } from '../services/dto/auth/send-otp.request.dto.js';
 import { ResendOtpRequestDto } from '../services/dto/auth/resend-otp.request.dto.js';
@@ -21,18 +21,6 @@ import {
   type AuthenticatedRequest,
 } from '../guards/access-token.guard.js';
 
-// Nhiều người có thể chung IP (Wi-Fi/NAT). Quota theo email và cooldown được
-// AuthService bảo vệ trong DB; IP là giới hạn tổng để giảm spam trên nhiều email.
-// Dùng chung bộ đếm cho send/resend để không nhân đôi quota khi đổi endpoint.
-const otpDeliveryThrottle = {
-  default: {
-    limit: 60,
-    ttl: 60000,
-    generateKey: (_context: unknown, tracker: string, name: string) =>
-      `auth:otp-delivery:${name}:${tracker}`,
-  },
-};
-
 @Controller('auth')
 @UseGuards(ThrottlerGuard)
 export class AuthController {
@@ -41,7 +29,7 @@ export class AuthController {
   @Post('otp/send')
   @HttpCode(202)
   @Header('Cache-Control', 'no-store')
-  @Throttle(otpDeliveryThrottle)
+  @SkipThrottle()
   sendOtp(@Body(authDto(SendOtpRequestDto)) body: SendOtpRequestDto) {
     return this.auth.sendOtp(body.email);
   }
@@ -49,7 +37,7 @@ export class AuthController {
   @Post('otp/resend')
   @HttpCode(202)
   @Header('Cache-Control', 'no-store')
-  @Throttle(otpDeliveryThrottle)
+  @SkipThrottle()
   resendOtp(@Body(authDto(ResendOtpRequestDto)) body: ResendOtpRequestDto) {
     return this.auth.resendOtp(body.email);
   }

@@ -264,14 +264,13 @@ Response auth dùng `Cache-Control: no-store`.
 - Trong phiên đang chờ, mỗi lần resend cách ít nhất 60 giây và tối đa 3 lần/phiên.
   Quota chống spam độc lập mặc định 10 challenge/email/giờ, tính cả các phiên đã
   hoàn tất. Chỉ lần gửi thành công mới tính quota email. Trả 429 khi vượt giới hạn.
-- Giới hạn IP: send + resend dùng chung 60/phút, verify 120/phút, các route auth khác 60/phút; bộ đếm IP
-  nằm trong bộ nhớ mỗi instance. Render đặt `TRUST_PROXY_HOPS=1`, local trực tiếp `0`.
-  Ngưỡng IP cho phép nhiều người chung Wi-Fi/NAT; cooldown và quota email trong
-  DB vẫn áp dụng độc lập. Lỗi IP trả thông báo tiếng Việt cùng header `Retry-After`
-  (số giây cần chờ), không trả chuỗi `ThrottlerException` ra giao diện.
-  Frontend production gọi trực tiếp ba route OTP trên Render để bộ đếm nhận
-  diện IP của người dùng. CORS cho phép hai origin `dulichnongthon.vn` và
-  `www.dulichnongthon.vn` qua HTTPS, đồng thời cho trình duyệt đọc `Retry-After`.
+- Send và resend dùng cooldown và quota theo email trong DB. Verify có giới hạn
+  120/phút theo IP. Các route refresh/logout/me có giới hạn 60/phút theo IP.
+  Bộ đếm IP nằm trong bộ nhớ mỗi instance. Render đặt `TRUST_PROXY_HOPS=1`,
+  local trực tiếp `0`. Lỗi giới hạn IP trả thông báo tiếng Việt cùng header
+  `Retry-After` (số giây cần chờ). CORS cho phép hai origin `dulichnongthon.vn`
+  và `www.dulichnongthon.vn` gọi trực tiếp các route OTP qua HTTPS, đồng thời
+  cho trình duyệt đọc `Retry-After`.
 - Access token HS256 sống 15 phút, kiểm tra issuer/audience, session và blocked user.
   Logout khiến access token bị từ chối ở lần kiểm tra sau.
 - Refresh token opaque có secret 256 bit, chỉ lưu SHA-256, session hết hạn tuyệt đối
