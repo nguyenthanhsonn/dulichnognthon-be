@@ -25,10 +25,9 @@ Lịch bình chọn theo giờ Việt Nam (UTC+7): mở lúc 00:00 ngày 07/11/2
 sau hết phút 23:59 ngày 20/11/2026. Từ 00:00 ngày 21/11/2026 (17:00 UTC ngày
 20/11), backend trả HTTP 403 cho bình chọn và gửi/gửi lại/xác thực OTP, kể cả
 OTP đã gửi trước hạn hoặc phiên đăng nhập còn hiệu lực.
-Đặt `VOTING_REOPEN_AT` trên backend bằng mốc bắt đầu có múi giờ
-(ví dụ `2026-11-26T20:30:00+07:00`) và deploy trước mốc đó để mở lại bình chọn
-và OTP đúng 15 phút. Backend tự đóng tại mốc bắt đầu cộng 15 phút. Khởi động
-lại với cùng cấu hình không kéo dài thời hạn. Repository kiểm tra đồng hồ DB
+Cổng bình chọn và đăng nhập OTP mở lại từ 20:30 đến 20:55 ngày 26/11/2026
+theo giờ Việt Nam. Với đợt sau, `VOTING_REOPEN_AT` có thể đặt mốc mở mới trong
+15 phút. Khởi động lại với cùng cấu hình không kéo dài thời hạn. Repository kiểm tra đồng hồ DB
 sau khi chờ khóa, ngay trước khi ghi phiếu.
 
 Không giới hạn tổng số điểm đến mỗi tài khoản được bình chọn; mỗi điểm đến chỉ

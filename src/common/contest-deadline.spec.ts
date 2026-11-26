@@ -223,10 +223,10 @@ describe('contest closure at midnight Vietnam time', () => {
 
 describe('temporary voting reopening', () => {
   const reopenAt = Date.parse('2026-11-26T20:30:00+07:00');
-  const closeAt = reopenAt + 15 * 60 * 1000;
+  const closeAt = Date.parse('2026-11-26T20:55:00+07:00');
 
-  it('opens only for the configured 15 minutes', () => {
-    vi.stubEnv('VOTING_REOPEN_AT', '2026-11-26T20:30:00+07:00');
+  it('opens from 20:30 through the last millisecond before 20:55', () => {
+    vi.stubEnv('VOTING_REOPEN_AT', '');
     expect(isContestClosed(CONTEST_CLOSES_AT - 1)).toBe(false);
     expect(isContestClosed(CONTEST_CLOSES_AT)).toBe(true);
     expect(isContestClosed(reopenAt - 1)).toBe(true);
@@ -236,10 +236,12 @@ describe('temporary voting reopening', () => {
   });
 
   it.each(['', '2026-11-26T20:30:00', '2026-11-20T20:30:00+07:00'])(
-    'stays closed when the reopening time is unavailable or invalid (%s)',
+    'retains the scheduled window when the old override is missing or invalid (%s)',
     (value) => {
       vi.stubEnv('VOTING_REOPEN_AT', value);
-      expect(isContestClosed(reopenAt)).toBe(true);
+      expect(isContestClosed(reopenAt - 1)).toBe(true);
+      expect(isContestClosed(reopenAt)).toBe(false);
+      expect(isContestClosed(closeAt)).toBe(true);
     },
   );
 

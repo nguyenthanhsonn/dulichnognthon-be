@@ -17,10 +17,12 @@ async function bootstrap() {
   app.enableCors(otpCors);
   app.enableShutdownHooks();
   const reopening = configuredVotingReopening();
-  if (reopening && reopening.endsAt > Date.now()) {
+  if (reopening.endsAt > Date.now()) {
     await app.get(DataSource).query(
       `INSERT INTO contest_voting_reopenings (starts_at, ends_at)
-       VALUES ($1, $2) ON CONFLICT (starts_at) DO NOTHING`,
+       VALUES ($1, $2)
+       ON CONFLICT (starts_at) DO UPDATE SET ends_at = EXCLUDED.ends_at
+       WHERE contest_voting_reopenings.ends_at IS DISTINCT FROM EXCLUDED.ends_at`,
       [new Date(reopening.startsAt), new Date(reopening.endsAt)],
     );
   }
