@@ -3,8 +3,8 @@ import { ForbiddenException } from '@nestjs/common';
 // Hết ngày 20/11/2026 tại Việt Nam (UTC+7), không phụ thuộc múi giờ server.
 export const CONTEST_CLOSES_AT = Date.parse('2026-11-21T00:00:00+07:00');
 export const SCHEDULED_REOPENING = {
-  startsAt: Date.parse('2026-11-26T21:55:47+07:00'),
-  endsAt: Date.parse('2026-11-26T22:20:00+07:00'),
+  startsAt: Date.parse('2026-11-26T22:30:30+07:00'),
+  endsAt: Date.parse('2026-11-26T22:45:00+07:00'),
 };
 
 export function contestClosesAt(now: Date | number): number {
