@@ -25,8 +25,8 @@ Lịch bình chọn theo giờ Việt Nam (UTC+7): mở lúc 00:00 ngày 07/11/2
 sau hết phút 23:59 ngày 20/11/2026. Từ 00:00 ngày 21/11/2026 (17:00 UTC ngày
 20/11), backend trả HTTP 403 cho bình chọn và gửi/gửi lại/xác thực OTP, kể cả
 OTP đã gửi trước hạn hoặc phiên đăng nhập còn hiệu lực.
-Cổng bình chọn và đăng nhập OTP mở lại từ 20:45 đến trước 21:00 ngày 26/11/2026
-theo giờ Việt Nam. Đến 21:00, backend chặn bình chọn, gửi và xác thực OTP, và làm
+Cổng bình chọn và đăng nhập OTP mở lại từ 20:45 đến trước 21:20 ngày 26/11/2026
+theo giờ Việt Nam. Đến 21:20, backend chặn bình chọn, gửi và xác thực OTP, và làm
 mới phiên đăng nhập. Repository kiểm tra đồng hồ DB sau khi chờ khóa, ngay trước
 khi ghi phiếu. Bảng xếp hạng cộng phiếu hợp lệ phát sinh từ mốc nhập bảng Excel.
 
