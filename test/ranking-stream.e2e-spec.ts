@@ -40,6 +40,9 @@ const query = {
   groupBy() {
     return this;
   },
+  addGroupBy() {
+    return this;
+  },
   orderBy() {
     return this;
   },

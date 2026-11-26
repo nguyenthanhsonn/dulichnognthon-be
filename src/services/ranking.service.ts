@@ -181,14 +181,20 @@ export class RankingService implements OnModuleDestroy {
   }
 
   private async query(): Promise<RankingResponseDto> {
-    // LEFT JOIN giữ cả điểm đến 0 phiếu. Một query GROUP BY, không truy vấn N+1.
+    const voteCount = 'COALESCE(published.vote_count, COUNT(vote.id))';
     const query = this.database
       .getRepository(Destination)
       .createQueryBuilder('destination')
       .leftJoin(
+        'published_vote_results',
+        'published',
+        'published.destination_id = destination.id',
+      )
+      .leftJoin(
         Vote,
         'vote',
-        `vote.destinationId = destination.id AND NOT EXISTS (
+        `published.destination_id IS NULL AND vote.destinationId = destination.id
+        AND NOT EXISTS (
           SELECT 1 FROM vote_disqualifications decision
           WHERE decision.vote_id = vote.id AND decision.restored_at IS NULL
         )`,
@@ -206,16 +212,17 @@ export class RankingService implements OnModuleDestroy {
       .addSelect('destination.province', 'province')
       .addSelect('destination.thumbnailUrl', 'thumbnailUrl')
       .addSelect('destination.displayOrder', 'displayOrder')
-      .addSelect('COUNT(vote.id)', 'voteCount')
+      .addSelect(voteCount, 'voteCount')
       .addSelect(
-        'ROW_NUMBER() OVER (ORDER BY COUNT(vote.id) DESC, destination.displayOrder ASC, destination.id ASC)',
+        `ROW_NUMBER() OVER (ORDER BY ${voteCount} DESC, destination.displayOrder ASC, destination.id ASC)`,
         'rank',
       )
       // Tính tổng toàn bộ điểm đến active trước khi list(topOnly) cắt Top 3.
-      .addSelect('SUM(COUNT(vote.id)) OVER ()', 'totalVotes')
+      .addSelect(`SUM(${voteCount}) OVER ()`, 'totalVotes')
       .addSelect('COUNT(*) OVER ()', 'totalDestinations')
       .groupBy('destination.id')
-      .orderBy('COUNT(vote.id)', 'DESC')
+      .addGroupBy('published.vote_count')
+      .orderBy(voteCount, 'DESC')
       .addOrderBy('destination.displayOrder', 'ASC')
       .addOrderBy('destination.id', 'ASC');
     const rows = await query.getRawMany<RankingRow>();

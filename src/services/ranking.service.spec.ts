@@ -26,6 +26,7 @@ function fixture() {
     select: vi.fn().mockReturnThis(),
     addSelect: vi.fn().mockReturnThis(),
     groupBy: vi.fn().mockReturnThis(),
+    addGroupBy: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
     addOrderBy: vi.fn().mockReturnThis(),
     getRawMany: vi.fn().mockResolvedValue(rows()),

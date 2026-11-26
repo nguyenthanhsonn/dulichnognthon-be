@@ -59,12 +59,12 @@ async function fixtures(count = 1, blocked = false, active = true) {
   return { user, destinations };
 }
 
-it('creates eight tables and stores Vietnamese table comments', async () => {
+it('creates the application tables and stores Vietnamese table comments', async () => {
   const { rows } = await client.query(
     "SELECT tablename, obj_description((quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass) AS comment FROM pg_tables WHERE schemaname = $1 AND tablename <> 'typeorm_migrations'",
     [schema],
   );
-  expect(rows).toHaveLength(8);
+  expect(rows).toHaveLength(9);
   expect(rows.every((row) => Boolean(row.comment))).toBe(true);
 });
 
@@ -144,6 +144,50 @@ it('keeps destinations with zero eligible votes and restores only after the last
     expect(
       await dataSource.getRepository(Vote).countBy({ id: result.vote.id }),
     ).toBe(1);
+  } finally {
+    ranking.onModuleDestroy();
+  }
+});
+
+it('publishes database results across rankings and keeps the original votes', async () => {
+  const { user, destinations } = await fixtures(3);
+  const [first, second, third] = destinations;
+  await votes.castVote(user.id, first.id);
+  await votes.castVote(user.id, second.id);
+  await votes.castVote(user.id, third.id);
+  await dataSource.query(
+    `INSERT INTO published_vote_results (destination_id, vote_count, source)
+     VALUES ($1, 0, 'Test workbook'), ($2, 10, 'Test workbook')`,
+    [first.id, second.id],
+  );
+
+  const ranking = new RankingService(dataSource);
+  try {
+    const full = await ranking.list();
+    const scores = new Map(full.items.map((item) => [item.id, item.voteCount]));
+    expect(scores.get(first.id)).toBe(0);
+    expect(scores.get(second.id)).toBe(10);
+    expect(scores.get(third.id)).toBe(1);
+    expect(full.items[0]).toMatchObject({ id: second.id, rank: 1 });
+    expect(full.totalVotes).toBe(
+      full.items.reduce((total, item) => total + item.voteCount, 0),
+    );
+    expect(await ranking.list(true)).toEqual({
+      totalVotes: full.totalVotes,
+      totalDestinations: full.totalDestinations,
+      items: full.items.slice(0, 3),
+    });
+    expect(await ranking.counts()).toMatchObject({
+      totalVotes: full.totalVotes,
+      items: full.items.map(({ id, voteCount, rank }) => ({
+        id,
+        voteCount,
+        rank,
+      })),
+    });
+    expect(
+      await dataSource.getRepository(Vote).countBy({ userId: user.id }),
+    ).toBe(3);
   } finally {
     ranking.onModuleDestroy();
   }

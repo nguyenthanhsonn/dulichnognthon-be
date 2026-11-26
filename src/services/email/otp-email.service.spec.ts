@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { type DataSource } from 'typeorm';
 import nodemailer from 'nodemailer';
 import { OAuth2Client } from 'google-auth-library';
+import { CONTEST_CLOSES_AT } from '../../common/contest-deadline.js';
 import { AuthService } from '../auth.service.js';
 import { getAuthSettings } from '../auth.config.js';
 import { OtpEmailService } from './otp-email.service.js';
@@ -120,6 +121,7 @@ it.each([
 ])(
   'rejects invalid config before creating an OTP challenge (%j)',
   async (values) => {
+    vi.spyOn(Date, 'now').mockReturnValue(CONTEST_CLOSES_AT - 1000);
     const transaction = vi.fn();
     const mail = new OtpEmailService(new ConfigService(values));
     const settings = getAuthSettings(
