@@ -15,6 +15,7 @@ import { VotingReopeningExtension1795699492000 } from './migrations/179569949200
 import { ReplaceVotingReopening1795700200000 } from './migrations/1795700200000-replace-voting-reopening.js';
 import { ExtendVotingReopening1795701200000 } from './migrations/1795701200000-extend-voting-to-2120.js';
 import { FinalVotingReopening1795703400000 } from './migrations/1795703400000-final-voting-reopening.js';
+import { EveningVotingReopening1795706100000 } from './migrations/1795706100000-evening-voting-reopening.js';
 
 export const DATABASE_POOL_SIZE = 10;
 
@@ -77,6 +78,7 @@ export function createDatabaseOptions(
       ReplaceVotingReopening1795700200000,
       ExtendVotingReopening1795701200000,
       FinalVotingReopening1795703400000,
+      EveningVotingReopening1795706100000,
     ],
     migrationsTableName: 'typeorm_migrations',
     migrationsTransactionMode: 'all',

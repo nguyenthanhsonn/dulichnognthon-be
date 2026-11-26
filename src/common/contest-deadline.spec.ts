@@ -221,10 +221,10 @@ describe('contest closure at midnight Vietnam time', () => {
 });
 
 describe('temporary voting reopening', () => {
-  const reopenAt = Date.parse('2026-11-26T21:29:35+07:00');
-  const closeAt = Date.parse('2026-11-26T21:45:00+07:00');
+  const reopenAt = Date.parse('2026-11-26T21:55:47+07:00');
+  const closeAt = Date.parse('2026-11-26T22:20:00+07:00');
 
-  it('remains open through the last millisecond before 21:45', () => {
+  it('remains open through the last millisecond before 22:20', () => {
     expect(isContestClosed(CONTEST_CLOSES_AT - 1)).toBe(false);
     expect(isContestClosed(CONTEST_CLOSES_AT)).toBe(true);
     expect(isContestClosed(reopenAt - 1)).toBe(true);
