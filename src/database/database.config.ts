@@ -10,6 +10,7 @@ import { OtpFlows1793839000000 } from './migrations/1793839000000-otp-flows.js';
 import { DestinationCards1793842000000 } from './migrations/1793842000000-destination-cards.js';
 import { VoteDisqualifications1793843000000 } from './migrations/1793843000000-vote-disqualifications.js';
 import { PublishedVoteResults1795669200000 } from './migrations/1795669200000-published-vote-results.js';
+import { VotingReopening1795698000000 } from './migrations/1795698000000-voting-reopening.js';
 
 export const DATABASE_POOL_SIZE = 10;
 
@@ -67,6 +68,7 @@ export function createDatabaseOptions(
       DestinationCards1793842000000,
       VoteDisqualifications1793843000000,
       PublishedVoteResults1795669200000,
+      VotingReopening1795698000000,
     ],
     migrationsTableName: 'typeorm_migrations',
     migrationsTransactionMode: 'all',

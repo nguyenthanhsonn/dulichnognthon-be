@@ -2,14 +2,34 @@ import { ForbiddenException } from '@nestjs/common';
 
 // Hết ngày 20/11/2026 tại Việt Nam (UTC+7), không phụ thuộc múi giờ server.
 export const CONTEST_CLOSES_AT = Date.parse('2026-11-21T00:00:00+07:00');
+const REOPEN_DURATION_MS = 15 * 60 * 1000;
+
+export function configuredVotingReopening():
+  { startsAt: number; endsAt: number } | undefined {
+  const value = process.env.VOTING_REOPEN_AT?.trim() ?? '';
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/.test(value))
+    return;
+  const startsAt = Date.parse(value);
+  if (!(startsAt >= CONTEST_CLOSES_AT)) return;
+  return { startsAt, endsAt: startsAt + REOPEN_DURATION_MS };
+}
+
+export function contestClosesAt(now: Date | number): number {
+  if (Number(now) < CONTEST_CLOSES_AT) return CONTEST_CLOSES_AT;
+  const reopening = configuredVotingReopening();
+  return reopening && Number(now) >= reopening.startsAt
+    ? reopening.endsAt
+    : CONTEST_CLOSES_AT;
+}
 
 export function isContestClosed(now: Date | number = Date.now()): boolean {
-  return Number(now) >= CONTEST_CLOSES_AT;
+  return Number(now) >= contestClosesAt(now);
 }
+
+export const CONTEST_CLOSED_MESSAGE =
+  'Cổng bình chọn và đăng nhập OTP hiện đã đóng.';
 
 export function assertContestOpen(now: Date | number = Date.now()): void {
   if (isContestClosed(now))
-    throw new ForbiddenException(
-      'Hội thi đã kết thúc. Cổng bình chọn và đăng nhập OTP đã đóng từ 00:00 ngày 21/11/2026 (giờ Việt Nam).',
-    );
+    throw new ForbiddenException(CONTEST_CLOSED_MESSAGE);
 }

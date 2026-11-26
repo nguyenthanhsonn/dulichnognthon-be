@@ -24,9 +24,12 @@ user, phiếu bình chọn hoặc token; không tạo cách đăng nhập bỏ q
 Lịch bình chọn theo giờ Việt Nam (UTC+7): mở lúc 00:00 ngày 07/11/2026 và đóng
 sau hết phút 23:59 ngày 20/11/2026. Từ 00:00 ngày 21/11/2026 (17:00 UTC ngày
 20/11), backend trả HTTP 403 cho bình chọn và gửi/gửi lại/xác thực OTP, kể cả
-OTP đã gửi trước hạn hoặc phiên đăng nhập còn hiệu lực. Mốc đóng cố định trong
-`src/common/contest-deadline.ts`, không phụ thuộc múi giờ server hay biến môi
-trường. Repository kiểm tra đồng hồ DB sau khi chờ khóa, ngay trước khi ghi phiếu.
+OTP đã gửi trước hạn hoặc phiên đăng nhập còn hiệu lực.
+Đặt `VOTING_REOPEN_AT` trên backend bằng mốc bắt đầu có múi giờ
+(ví dụ `2026-11-26T20:30:00+07:00`) và deploy trước mốc đó để mở lại bình chọn
+và OTP đúng 15 phút. Backend tự đóng tại mốc bắt đầu cộng 15 phút. Khởi động
+lại với cùng cấu hình không kéo dài thời hạn. Repository kiểm tra đồng hồ DB
+sau khi chờ khóa, ngay trước khi ghi phiếu.
 
 Không giới hạn tổng số điểm đến mỗi tài khoản được bình chọn; mỗi điểm đến chỉ
 được vote một lần/tài khoản trong toàn hội thi. Các API đọc vẫn hoạt

@@ -20,7 +20,10 @@ const settings = getAuthSettings(
     AUTH_OTP_SECRET: 'test-only-otp-secret-at-least-32-characters',
   }),
 );
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 function authFixture(clock = new Date(CONTEST_CLOSES_AT)) {
   const tx = {
@@ -216,4 +219,46 @@ describe('contest closure at midnight Vietnam time', () => {
       }
     },
   );
+});
+
+describe('temporary voting reopening', () => {
+  const reopenAt = Date.parse('2026-11-26T20:30:00+07:00');
+  const closeAt = reopenAt + 15 * 60 * 1000;
+
+  it('opens only for the configured 15 minutes', () => {
+    vi.stubEnv('VOTING_REOPEN_AT', '2026-11-26T20:30:00+07:00');
+    expect(isContestClosed(CONTEST_CLOSES_AT - 1)).toBe(false);
+    expect(isContestClosed(CONTEST_CLOSES_AT)).toBe(true);
+    expect(isContestClosed(reopenAt - 1)).toBe(true);
+    expect(isContestClosed(reopenAt)).toBe(false);
+    expect(isContestClosed(closeAt - 1)).toBe(false);
+    expect(isContestClosed(closeAt)).toBe(true);
+  });
+
+  it.each(['', '2026-11-26T20:30:00', '2026-11-20T20:30:00+07:00'])(
+    'stays closed when the reopening time is unavailable or invalid (%s)',
+    (value) => {
+      vi.stubEnv('VOTING_REOPEN_AT', value);
+      expect(isContestClosed(reopenAt)).toBe(true);
+    },
+  );
+
+  it('allows OTP during reopening and caps its expiry at the new cutoff', async () => {
+    vi.stubEnv('VOTING_REOPEN_AT', '2026-11-26T20:30:00+07:00');
+    vi.useFakeTimers();
+    vi.setSystemTime(closeAt - 1000);
+    const { auth, tx } = authFixture(new Date(closeAt - 1000));
+    await expect(auth.sendOtp('voter@example.com')).resolves.toMatchObject({
+      expiresIn: 1,
+      flowExpiresIn: 1,
+    });
+    expect(tx.save).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ expiresAt: new Date(closeAt) }),
+    );
+    vi.setSystemTime(closeAt);
+    await expect(auth.sendOtp('voter@example.com')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
 });
