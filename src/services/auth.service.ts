@@ -357,6 +357,7 @@ export class AuthService {
             ),
           }),
         );
+        assertContestOpen(await this.now(tx));
         return this.tokens(user, session, refreshToken, now);
       },
     );
@@ -365,6 +366,7 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string): Promise<TokenResponseDto> {
+    assertContestOpen();
     const id = this.refreshId(refreshToken);
     if (!id) throw invalidSession();
     const result = await this.database.transaction(
@@ -375,6 +377,7 @@ export class AuthService {
           lock: { mode: 'pessimistic_write' },
         });
         const now = await this.now(tx);
+        assertContestOpen(now);
         if (
           !session ||
           session.revokedAt ||
@@ -393,6 +396,7 @@ export class AuthService {
         await tx.update(AuthSession, session.id, {
           refreshTokenHash: this.tokenHash(replacement),
         });
+        assertContestOpen(await this.now(tx));
         return this.tokens(user, session, replacement, now);
       },
     );

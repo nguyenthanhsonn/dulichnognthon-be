@@ -22,7 +22,6 @@ const settings = getAuthSettings(
 );
 afterEach(() => {
   vi.useRealTimers();
-  vi.unstubAllEnvs();
 });
 
 function authFixture(clock = new Date(CONTEST_CLOSES_AT)) {
@@ -222,11 +221,10 @@ describe('contest closure at midnight Vietnam time', () => {
 });
 
 describe('temporary voting reopening', () => {
-  const reopenAt = Date.parse('2026-11-26T20:30:00+07:00');
-  const closeAt = Date.parse('2026-11-26T20:55:00+07:00');
+  const reopenAt = Date.parse('2026-11-26T20:45:00+07:00');
+  const closeAt = Date.parse('2026-11-26T21:00:00+07:00');
 
-  it('opens from 20:30 through the last millisecond before 20:55', () => {
-    vi.stubEnv('VOTING_REOPEN_AT', '');
+  it('opens from 20:45 through the last millisecond before 21:00', () => {
     expect(isContestClosed(CONTEST_CLOSES_AT - 1)).toBe(false);
     expect(isContestClosed(CONTEST_CLOSES_AT)).toBe(true);
     expect(isContestClosed(reopenAt - 1)).toBe(true);
@@ -235,18 +233,7 @@ describe('temporary voting reopening', () => {
     expect(isContestClosed(closeAt)).toBe(true);
   });
 
-  it.each(['', '2026-11-26T20:30:00', '2026-11-20T20:30:00+07:00'])(
-    'retains the scheduled window when the old override is missing or invalid (%s)',
-    (value) => {
-      vi.stubEnv('VOTING_REOPEN_AT', value);
-      expect(isContestClosed(reopenAt - 1)).toBe(true);
-      expect(isContestClosed(reopenAt)).toBe(false);
-      expect(isContestClosed(closeAt)).toBe(true);
-    },
-  );
-
   it('allows OTP during reopening and caps its expiry at the new cutoff', async () => {
-    vi.stubEnv('VOTING_REOPEN_AT', '2026-11-26T20:30:00+07:00');
     vi.useFakeTimers();
     vi.setSystemTime(closeAt - 1000);
     const { auth, tx } = authFixture(new Date(closeAt - 1000));
@@ -260,6 +247,15 @@ describe('temporary voting reopening', () => {
     );
     vi.setSystemTime(closeAt);
     await expect(auth.sendOtp('voter@example.com')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(auth.resendOtp('voter@example.com')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(
+      auth.verifyOtp('voter@example.com', '123456'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(auth.refresh('existing-refresh-token')).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });

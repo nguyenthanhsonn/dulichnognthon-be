@@ -12,6 +12,7 @@ import { VoteDisqualifications1793843000000 } from './migrations/1793843000000-v
 import { PublishedVoteResults1795669200000 } from './migrations/1795669200000-published-vote-results.js';
 import { VotingReopening1795698000000 } from './migrations/1795698000000-voting-reopening.js';
 import { VotingReopeningExtension1795699492000 } from './migrations/1795699492000-voting-reopening-extension.js';
+import { ReplaceVotingReopening1795700200000 } from './migrations/1795700200000-replace-voting-reopening.js';
 
 export const DATABASE_POOL_SIZE = 10;
 
@@ -71,6 +72,7 @@ export function createDatabaseOptions(
       PublishedVoteResults1795669200000,
       VotingReopening1795698000000,
       VotingReopeningExtension1795699492000,
+      ReplaceVotingReopening1795700200000,
     ],
     migrationsTableName: 'typeorm_migrations',
     migrationsTransactionMode: 'all',

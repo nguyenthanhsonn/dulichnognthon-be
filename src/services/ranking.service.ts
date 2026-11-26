@@ -181,7 +181,7 @@ export class RankingService implements OnModuleDestroy {
   }
 
   private async query(): Promise<RankingResponseDto> {
-    const voteCount = 'COALESCE(published.vote_count, COUNT(vote.id))';
+    const voteCount = 'COALESCE(published.vote_count, 0) + COUNT(vote.id)';
     const query = this.database
       .getRepository(Destination)
       .createQueryBuilder('destination')
@@ -193,7 +193,8 @@ export class RankingService implements OnModuleDestroy {
       .leftJoin(
         Vote,
         'vote',
-        `published.destination_id IS NULL AND vote.destinationId = destination.id
+        `vote.destinationId = destination.id
+        AND (published.imported_at IS NULL OR vote.createdAt >= published.imported_at)
         AND NOT EXISTS (
           SELECT 1 FROM vote_disqualifications decision
           WHERE decision.vote_id = vote.id AND decision.restored_at IS NULL

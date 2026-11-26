@@ -163,10 +163,19 @@ it('publishes database results across rankings and keeps the original votes', as
 
   const ranking = new RankingService(dataSource);
   try {
+    const { user: newVoter } = await fixtures(0);
+    const accepted = await votes.castVote(newVoter.id, second.id);
+    const excluded = await votes.castVote(newVoter.id, first.id);
+    if (!accepted.accepted || !excluded.accepted) throw new Error('Expected both new votes to be accepted');
+    await dataSource.query(
+      `INSERT INTO vote_disqualifications (vote_id, reason, cutoff_at, disqualified_by)
+       VALUES ($1, 'UNAPPROVED_DOMAIN', now(), 'Test review')`,
+      [excluded.vote.id],
+    );
     const full = await ranking.list();
     const scores = new Map(full.items.map((item) => [item.id, item.voteCount]));
     expect(scores.get(first.id)).toBe(0);
-    expect(scores.get(second.id)).toBe(10);
+    expect(scores.get(second.id)).toBe(11);
     expect(scores.get(third.id)).toBe(1);
     expect(full.items[0]).toMatchObject({ id: second.id, rank: 1 });
     expect(full.totalVotes).toBe(
