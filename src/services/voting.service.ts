@@ -11,7 +11,10 @@ import { DataSource, QueryFailedError } from 'typeorm';
 import { RankingService } from './ranking.service.js';
 import { Vote } from '../database/entities/voting.entities.js';
 import { VotesRepository } from '../database/votes.repository.js';
-import { assertContestOpen } from '../common/contest-deadline.js';
+import {
+  assertContestOpen,
+  CONTEST_CLOSED_MESSAGE,
+} from '../common/contest-deadline.js';
 import { destinationSummary } from './dto/destination/destination.response.dto.js';
 import type {
   MyVotesResponseDto,
@@ -40,18 +43,14 @@ export class VotingService {
           error.driverError.code === '23514' &&
           error.driverError.constraint === 'votes_contest_2026_window_check'
         ) {
-          throw new ForbiddenException(
-            'Cổng bình chọn nhận phiếu từ 00:00 ngày 07/11/2026 đến hết 23:59 ngày 20/11/2026 (giờ Việt Nam).',
-          );
+          throw new ForbiddenException(CONTEST_CLOSED_MESSAGE);
         }
         throw error;
       });
     if (!outcome.accepted) {
       switch (outcome.reason) {
         case 'VOTING_CLOSED':
-          throw new ForbiddenException(
-            'Hội thi đã kết thúc. Cổng bình chọn đã đóng từ 00:00 ngày 21/11/2026 (giờ Việt Nam).',
-          );
+          throw new ForbiddenException(CONTEST_CLOSED_MESSAGE);
         case 'USER_NOT_FOUND':
           throw new UnauthorizedException('Tài khoản không còn tồn tại.');
         case 'USER_BLOCKED':

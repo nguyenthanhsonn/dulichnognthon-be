@@ -64,7 +64,7 @@ it('creates the application tables and stores Vietnamese table comments', async 
     "SELECT tablename, obj_description((quote_ident(schemaname) || '.' || quote_ident(tablename))::regclass) AS comment FROM pg_tables WHERE schemaname = $1 AND tablename <> 'typeorm_migrations'",
     [schema],
   );
-  expect(rows).toHaveLength(9);
+  expect(rows).toHaveLength(10);
   expect(rows.every((row) => Boolean(row.comment))).toBe(true);
 });
 

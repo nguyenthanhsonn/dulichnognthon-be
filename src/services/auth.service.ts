@@ -34,7 +34,7 @@ import { isDisposableEmail, normalizeEmail } from './dto/auth/email.js';
 import { DATABASE_POOL_SIZE } from '../database/database.config.js';
 import {
   assertContestOpen,
-  CONTEST_CLOSES_AT,
+  contestClosesAt,
 } from '../common/contest-deadline.js';
 import type {
   SendOtpResponseDto,
@@ -225,7 +225,7 @@ export class AuthService {
           Math.min(
             activeFlow?.flowExpiresAt?.getTime() ??
               sentAt.getTime() + this.settings.otpFlowTtlSeconds * 1000,
-            CONTEST_CLOSES_AT,
+            contestClosesAt(sentAt),
           ),
         );
         if (flowExpiresAt <= sentAt)
